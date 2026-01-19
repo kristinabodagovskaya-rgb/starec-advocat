@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import os
 import re
 
-from app.models import get_db, Case
+from app.models import get_db, Case, Volume
 
 router = APIRouter()
 
@@ -261,14 +261,30 @@ async def upload_volumes(
             content = await file.read()
             f.write(content)
 
+        file_size = len(content)
+
+        # Создаем запись Volume в базе данных
+        max_volume = db.query(Volume).filter(Volume.case_id == case_id).order_by(Volume.volume_number.desc()).first()
+        next_volume_number = (max_volume.volume_number + 1) if max_volume else 1
+
+        new_volume = Volume(
+            case_id=case_id,
+            volume_number=next_volume_number,
+            file_name=file.filename,
+            file_size=file_size,
+            processing_status="pending"
+        )
+        db.add(new_volume)
+        db.commit()
+        db.refresh(new_volume)
+
         uploaded_files.append({
             "filename": file.filename,
             "path": file_path,
-            "size": len(content)
+            "size": file_size,
+            "volume_id": new_volume.id,
+            "volume_number": new_volume.volume_number
         })
-
-    # TODO: Создать записи Volume в базе данных
-    # TODO: Поставить задачи на OCR обработку в Celery
 
     return {
         "case_id": case_id,
@@ -344,11 +360,33 @@ async def sync_gdrive_folder(
                     with open(file_path, 'wb') as f:
                         f.write(response.content)
 
+                    file_size = len(response.content)
+
                     downloaded_files.append({
                         "filename": filename,
                         "path": file_path,
-                        "size": len(response.content)
+                        "size": file_size
                     })
+
+                    # Создаем запись Volume в базе данных
+                    # Определяем номер тома (следующий по порядку)
+                    max_volume = db.query(Volume).filter(Volume.case_id == case_id).order_by(Volume.volume_number.desc()).first()
+                    next_volume_number = (max_volume.volume_number + 1) if max_volume else 1
+
+                    new_volume = Volume(
+                        case_id=case_id,
+                        volume_number=next_volume_number,
+                        gdrive_file_id=resource_id,
+                        file_name=filename,
+                        file_size=file_size,
+                        processing_status="pending"
+                    )
+                    db.add(new_volume)
+                    db.commit()
+                    db.refresh(new_volume)
+
+                    downloaded_files[-1]["volume_id"] = new_volume.id
+                    downloaded_files[-1]["volume_number"] = new_volume.volume_number
                 else:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -357,14 +395,10 @@ async def sync_gdrive_folder(
 
         elif resource_type == "folder":
             # Для папок нужен Google Drive API
-            # Пока возвращаем сообщение что нужна ссылка на файл
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Пока поддерживаются только ссылки на отдельные файлы. Загрузите файлы по одному или используйте загрузку с компьютера."
             )
-
-        # TODO: Создать записи Volume в базе данных
-        # TODO: Поставить задачи на OCR обработку в Celery
 
         return {
             "case_id": case_id,
