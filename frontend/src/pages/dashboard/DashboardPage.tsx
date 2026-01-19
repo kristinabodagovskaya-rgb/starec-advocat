@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const loadCases = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('/api/cases', {
+      const response = await fetch('/api/cases/', {
         headers: {
           'Authorization': `Bearer ${token}`
         }

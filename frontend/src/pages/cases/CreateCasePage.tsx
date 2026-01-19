@@ -43,7 +43,7 @@ export default function CreateCasePage() {
 
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('/api/cases', {
+      const response = await fetch('/api/cases/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
