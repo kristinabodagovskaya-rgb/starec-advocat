@@ -1,21 +1,27 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import LoginPage from './pages/auth/LoginPage'
+import DashboardPage from './pages/dashboard/DashboardPage'
 
-// TODO: Import pages when created
-// import LoginPage from './pages/auth/LoginPage'
-// import DashboardPage from './pages/dashboard/DashboardPage'
-// import CaseDetailPage from './pages/cases/CaseDetailPage'
-// etc...
+// Protected Route wrapper
+function ProtectedRoute({ children }: { children: JSX.Element }) {
+  const token = localStorage.getItem('token')
+  return token ? children : <Navigate to="/login" />
+}
 
 function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Routes>
         {/* Authentication */}
-        <Route path="/login" element={<div>Login Page - TODO</div>} />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<div>Register Page - TODO</div>} />
 
         {/* Dashboard */}
-        <Route path="/" element={<div>Dashboard - TODO</div>} />
+        <Route path="/" element={
+          <ProtectedRoute>
+            <DashboardPage />
+          </ProtectedRoute>
+        } />
 
         {/* Case Management */}
         <Route path="/cases/:id" element={<div>Case Detail - TODO</div>} />
