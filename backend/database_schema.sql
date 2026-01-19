@@ -1,10 +1,8 @@
 -- Starec-Advocat 2.0 Database Schema
 -- PostgreSQL 16+
 
--- Создание базы данных
-CREATE DATABASE starec_advocat;
-
-\c starec_advocat;
+-- База данных создаётся автоматически через POSTGRES_DB в docker-compose.yml
+-- Мы уже подключены к ней через docker-entrypoint
 
 -- Пользователи
 CREATE TABLE users (
