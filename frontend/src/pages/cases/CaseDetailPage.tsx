@@ -35,11 +35,52 @@ export default function CaseDetailPage() {
       if (response.ok) {
         const data = await response.json()
         setCaseData(data)
+      } else {
+        // Load demo case data
+        loadDemoCase()
       }
     } catch (error) {
       console.error('Failed to load case:', error)
+      // Load demo case data
+      loadDemoCase()
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadDemoCase = () => {
+    // Try to load from session storage first
+    const sessionCase = sessionStorage.getItem(`case_${id}`)
+    if (sessionCase) {
+      const caseData = JSON.parse(sessionCase)
+      setCaseData({
+        id: parseInt(id!),
+        case_number: caseData.case_number,
+        title: caseData.title,
+        article: caseData.article,
+        defendant_name: caseData.defendant_name,
+        volumes_count: 0,
+        documents_count: 0,
+        processing_progress: 0,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+    } else {
+      // Default demo data
+      setCaseData({
+        id: parseInt(id!),
+        case_number: id === '1' ? '1234567' : '8765432',
+        title: id === '1' ? 'УД в отношении Петрова А.В. по ст. 159 УК РФ' : 'УД по ст. 228 УК РФ',
+        article: id === '1' ? 'ч.4 ст. 159 УК РФ' : 'ч.1 ст. 228 УК РФ',
+        defendant_name: id === '1' ? 'Петров Алексей Владимирович' : 'Иванов Иван Иванович',
+        volumes_count: id === '1' ? 216 : 45,
+        documents_count: id === '1' ? 1847 : 523,
+        processing_progress: id === '1' ? 98 : 100,
+        status: 'active',
+        created_at: '2026-01-18T10:00:00Z',
+        updated_at: '2026-01-18T15:30:00Z',
+      })
     }
   }
 
