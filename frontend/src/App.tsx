@@ -1,6 +1,13 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import LoginPage from './pages/auth/LoginPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
+import CreateCasePage from './pages/cases/CreateCasePage'
+import CaseDetailPage from './pages/cases/CaseDetailPage'
+import VolumesPage from './pages/cases/VolumesPage'
+import DocumentsPage from './pages/cases/DocumentsPage'
+import AnalysisPage from './pages/cases/AnalysisPage'
+import StrategyPage from './pages/cases/StrategyPage'
+import DocumentDetailPage from './pages/documents/DocumentDetailPage'
 
 // Protected Route wrapper
 function ProtectedRoute({ children }: { children: JSX.Element }) {
@@ -24,17 +31,56 @@ function App() {
         } />
 
         {/* Case Management */}
-        <Route path="/cases/:id" element={<div>Case Detail - TODO</div>} />
-        <Route path="/cases/:id/volumes" element={<div>Volumes - TODO</div>} />
-        <Route path="/cases/:id/documents" element={<div>Documents - TODO</div>} />
-        <Route path="/cases/:id/analysis" element={<div>Analysis - TODO</div>} />
-        <Route path="/cases/:id/strategy" element={<div>Strategy - TODO</div>} />
+        <Route path="/cases/new" element={
+          <ProtectedRoute>
+            <CreateCasePage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id" element={
+          <ProtectedRoute>
+            <CaseDetailPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id/volumes" element={
+          <ProtectedRoute>
+            <VolumesPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id/documents" element={
+          <ProtectedRoute>
+            <DocumentsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id/analysis" element={
+          <ProtectedRoute>
+            <AnalysisPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id/strategy" element={
+          <ProtectedRoute>
+            <StrategyPage />
+          </ProtectedRoute>
+        } />
 
         {/* Document Detail */}
-        <Route path="/documents/:id" element={<div>Document Detail - TODO</div>} />
+        <Route path="/documents/:id" element={
+          <ProtectedRoute>
+            <DocumentDetailPage />
+          </ProtectedRoute>
+        } />
 
         {/* 404 */}
-        <Route path="*" element={<div>404 - Page Not Found</div>} />
+        <Route path="*" element={
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="text-center">
+              <h1 className="text-6xl font-bold text-gray-900 mb-4">404</h1>
+              <p className="text-gray-600 mb-4">Страница не найдена</p>
+              <a href="/" className="text-blue-600 hover:text-blue-700 font-medium">
+                Вернуться на главную →
+              </a>
+            </div>
+          </div>
+        } />
       </Routes>
     </div>
   )
