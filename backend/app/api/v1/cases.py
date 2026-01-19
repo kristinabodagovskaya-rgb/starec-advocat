@@ -2,10 +2,12 @@
 API для работы с делами
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
+import os
+import re
 
 from app.models import get_db, Case
 
@@ -222,4 +224,97 @@ async def get_case_statistics(
         "documents_count": 0,
         "participants_count": 0,
         "events_count": 0
+    }
+
+
+@router.post("/{case_id}/upload-volumes/")
+async def upload_volumes(
+    case_id: int,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    """Загрузить тома с компьютера"""
+
+    # Проверяем существование дела
+    case = db.query(Case).filter(Case.id == case_id).first()
+    if not case:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Дело не найдено"
+        )
+
+    # Создаем директорию для загрузок
+    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    uploaded_files = []
+
+    for file in files:
+        # Проверяем формат файла
+        if not file.filename.endswith('.pdf'):
+            continue
+
+        # Сохраняем файл
+        file_path = os.path.join(upload_dir, file.filename)
+
+        with open(file_path, 'wb') as f:
+            content = await file.read()
+            f.write(content)
+
+        uploaded_files.append({
+            "filename": file.filename,
+            "path": file_path,
+            "size": len(content)
+        })
+
+    # TODO: Создать записи Volume в базе данных
+    # TODO: Поставить задачи на OCR обработку в Celery
+
+    return {
+        "case_id": case_id,
+        "uploaded": len(uploaded_files),
+        "files": uploaded_files,
+        "message": f"Загружено {len(uploaded_files)} файлов"
+    }
+
+
+class GDriveSyncRequest(BaseModel):
+    gdrive_link: str
+
+
+@router.post("/{case_id}/sync-gdrive/")
+async def sync_gdrive_folder(
+    case_id: int,
+    request: GDriveSyncRequest,
+    db: Session = Depends(get_db)
+):
+    """Синхронизация томов из публичной папки Google Drive"""
+
+    # Проверяем существование дела
+    case = db.query(Case).filter(Case.id == case_id).first()
+    if not case:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Дело не найдено"
+        )
+
+    # Извлекаем folder ID из ссылки
+    folder_id_match = re.search(r'/folders/([a-zA-Z0-9_-]+)', request.gdrive_link)
+    if not folder_id_match:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Неверная ссылка на папку Google Drive"
+        )
+
+    folder_id = folder_id_match.group(1)
+
+    # TODO: Реализовать загрузку файлов из публичной папки Google Drive
+    # Для этого нужно использовать Google Drive API без OAuth
+    # Использовать публичный доступ к папке
+
+    return {
+        "case_id": case_id,
+        "folder_id": folder_id,
+        "message": "Синхронизация будет реализована в следующей версии",
+        "status": "pending"
     }

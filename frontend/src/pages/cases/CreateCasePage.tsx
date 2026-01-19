@@ -15,6 +15,9 @@ export default function CreateCasePage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [uploadMethod, setUploadMethod] = useState<'local' | 'gdrive'>('local')
+  const [gdriveLink, setGdriveLink] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [formData, setFormData] = useState<CaseFormData>({
     case_number: '',
     title: '',
@@ -68,7 +71,80 @@ export default function CreateCasePage() {
     }
   }
 
-  const handleVolumesUpload = () => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) {
+      setSelectedFiles(Array.from(files))
+    }
+  }
+
+  const handleUploadFiles = async () => {
+    const caseId = sessionStorage.getItem('newCaseId')
+    if (!caseId) {
+      alert('Ошибка: ID дела не найден')
+      return
+    }
+
+    if (uploadMethod === 'local' && selectedFiles.length === 0) {
+      alert('Выберите файлы для загрузки')
+      return
+    }
+
+    if (uploadMethod === 'gdrive' && !gdriveLink) {
+      alert('Вставьте ссылку на папку Google Drive')
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      if (uploadMethod === 'local') {
+        // Загрузка файлов с компьютера
+        const formData = new FormData()
+        formData.append('case_id', caseId)
+        selectedFiles.forEach((file) => {
+          formData.append('files', file)
+        })
+
+        const response = await fetch(`/api/cases/${caseId}/upload-volumes/`, {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (response.ok) {
+          sessionStorage.removeItem('newCaseId')
+          navigate(`/cases/${caseId}`)
+        } else {
+          alert('Ошибка при загрузке файлов')
+        }
+      } else {
+        // Загрузка по ссылке Google Drive
+        const response = await fetch(`/api/cases/${caseId}/sync-gdrive/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            gdrive_link: gdriveLink,
+          }),
+        })
+
+        if (response.ok) {
+          sessionStorage.removeItem('newCaseId')
+          navigate(`/cases/${caseId}`)
+        } else {
+          alert('Ошибка при синхронизации с Google Drive')
+        }
+      }
+    } catch (error) {
+      console.error('Upload error:', error)
+      alert(`Ошибка: ${error}`)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleSkipUpload = () => {
     const caseId = sessionStorage.getItem('newCaseId')
     if (caseId) {
       sessionStorage.removeItem('newCaseId')
@@ -281,84 +357,134 @@ export default function CreateCasePage() {
               </h3>
 
               <div className="space-y-3">
-                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer transition-colors">
-                  <input type="radio" name="upload_method" value="gdrive" className="w-5 h-5 text-blue-600" defaultChecked />
-                  <div className="ml-4">
-                    <div className="font-medium text-gray-900">Из Google Drive</div>
-                    <div className="text-sm text-gray-500">Подключите папку с томами из Google Drive</div>
-                  </div>
-                </label>
-
-                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer transition-colors opacity-50">
-                  <input type="radio" name="upload_method" value="local" className="w-5 h-5 text-blue-600" disabled />
+                <label className="flex items-center p-4 border-2 border-blue-500 bg-blue-50 rounded-lg cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="upload_method"
+                    value="local"
+                    className="w-5 h-5 text-blue-600"
+                    checked={uploadMethod === 'local'}
+                    onChange={() => setUploadMethod('local')}
+                  />
                   <div className="ml-4">
                     <div className="font-medium text-gray-900">Загрузить файлы с компьютера</div>
-                    <div className="text-sm text-gray-500">Скоро будет доступно</div>
+                    <div className="text-sm text-gray-600">Выберите PDF файлы томов на вашем компьютере</div>
                   </div>
                 </label>
 
-                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer transition-colors opacity-50">
-                  <input type="radio" name="upload_method" value="cloud" className="w-5 h-5 text-blue-600" disabled />
+                <label className="flex items-center p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="upload_method"
+                    value="gdrive"
+                    className="w-5 h-5 text-blue-600"
+                    checked={uploadMethod === 'gdrive'}
+                    onChange={() => setUploadMethod('gdrive')}
+                  />
                   <div className="ml-4">
-                    <div className="font-medium text-gray-900">Из облачного хранилища</div>
-                    <div className="text-sm text-gray-500">Яндекс.Диск, Dropbox (скоро)</div>
+                    <div className="font-medium text-gray-900">По ссылке на Google Drive</div>
+                    <div className="text-sm text-gray-600">Вставьте публичную ссылку на папку с томами</div>
                   </div>
                 </label>
               </div>
             </div>
 
-            {/* Google Drive Section */}
-            <div className="bg-white rounded-xl shadow-sm p-8">
-              <div className="flex items-center mb-6">
-                <svg className="w-8 h-8 text-blue-600 mr-3" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12.01 1.485c-.206 0-.412.063-.59.19l-7.94 5.636c-.355.252-.563.66-.563 1.094v7.19c0 .434.208.842.563 1.094l7.94 5.636c.356.253.824.253 1.18 0l7.94-5.636c.355-.252.563-.66.563-1.094v-7.19c0-.434-.208-.842-.563-1.094L12.6 1.675c-.178-.127-.384-.19-.59-.19z"/>
-                </svg>
-                <h3 className="text-xl font-semibold text-gray-900">Google Drive</h3>
-              </div>
+            {/* Upload Content */}
+            {uploadMethod === 'local' && (
+              <div className="bg-white rounded-xl shadow-sm p-8">
+                <h4 className="font-medium text-gray-900 mb-4">Выберите файлы томов</h4>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-                <p className="text-blue-900 mb-4">
-                  После подключения Google Drive вы сможете выбрать папку с томами дела.
-                </p>
-                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors flex items-center justify-center">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12.01 1.485c-.206 0-.412.063-.59.19l-7.94 5.636c-.355.252-.563.66-.563 1.094v7.19c0 .434.208.842.563 1.094l7.94 5.636c.356.253.824.253 1.18 0l7.94-5.636c.355-.252.563-.66.563-1.094v-7.19c0-.434-.208-.842-.563-1.094L12.6 1.675c-.178-.127-.384-.19-.59-.19z"/>
-                  </svg>
-                  Подключить Google Drive
-                </button>
-              </div>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    id="file-upload"
+                  />
+                  <label htmlFor="file-upload" className="cursor-pointer">
+                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <p className="text-lg font-medium text-gray-700 mb-2">
+                      Нажмите для выбора файлов
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      или перетащите PDF файлы сюда
+                    </p>
+                  </label>
+                </div>
 
-              {/* Requirements */}
-              <div className="space-y-2">
-                <h4 className="font-medium text-gray-900 mb-3">Требования к файлам:</h4>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>Формат: PDF (отсканированные или текстовые)</span>
+                {selectedFiles.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-sm font-medium text-gray-700 mb-2">
+                      Выбрано файлов: {selectedFiles.length}
+                    </p>
+                    <div className="max-h-40 overflow-y-auto space-y-1">
+                      {selectedFiles.map((file, index) => (
+                        <div key={index} className="text-sm text-gray-600 flex items-center">
+                          <svg className="w-4 h-4 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                          </svg>
+                          {file.name} ({(file.size / 1024 / 1024).toFixed(2)} МБ)
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>Название файлов: "Том 001.pdf", "Том 002.pdf" и т.д.</span>
+                )}
+
+                <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-900 font-medium mb-2">Требования к файлам:</p>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• Формат: PDF</li>
+                    <li>• Максимальный размер: 500 МБ на файл</li>
+                    <li>• Рекомендуемое название: "Том 001.pdf", "Том 002.pdf" и т.д.</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {uploadMethod === 'gdrive' && (
+              <div className="bg-white rounded-xl shadow-sm p-8">
+                <h4 className="font-medium text-gray-900 mb-4">Публичная ссылка на папку Google Drive</h4>
+
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="gdrive-link" className="block text-sm font-medium text-gray-700 mb-2">
+                      Ссылка на папку
+                    </label>
+                    <input
+                      type="text"
+                      id="gdrive-link"
+                      value={gdriveLink}
+                      onChange={(e) => setGdriveLink(e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </div>
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>Максимальный размер одного тома: 500 МБ</span>
+
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-sm text-yellow-900 font-medium mb-2">Как получить публичную ссылку:</p>
+                    <ol className="text-sm text-yellow-800 space-y-1 list-decimal list-inside">
+                      <li>Откройте папку с томами в Google Drive</li>
+                      <li>Нажмите правой кнопкой → "Настройки доступа"</li>
+                      <li>Выберите "Доступно всем, у кого есть ссылка"</li>
+                      <li>Скопируйте ссылку и вставьте её выше</li>
+                    </ol>
                   </div>
-                  <div className="flex items-start">
-                    <svg className="w-5 h-5 text-green-600 mr-2 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span>Поддерживается OCR для отсканированных документов</span>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-900 font-medium mb-2">Требования к файлам в папке:</p>
+                    <ul className="text-sm text-blue-800 space-y-1">
+                      <li>• Формат: только PDF файлы</li>
+                      <li>• Максимальный размер: 500 МБ на файл</li>
+                      <li>• Будут загружены все PDF файлы из папки</li>
+                    </ul>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Form Actions */}
             <div className="flex items-center justify-between">
@@ -369,13 +495,23 @@ export default function CreateCasePage() {
               >
                 Назад
               </button>
-              <button
-                type="button"
-                onClick={handleVolumesUpload}
-                className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
-              >
-                Пропустить (добавить тома позже)
-              </button>
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={handleSkipUpload}
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Пропустить
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUploadFiles}
+                  disabled={isSubmitting || (uploadMethod === 'local' && selectedFiles.length === 0) || (uploadMethod === 'gdrive' && !gdriveLink)}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors font-medium"
+                >
+                  {isSubmitting ? 'Загрузка...' : 'Загрузить тома'}
+                </button>
+              </div>
             </div>
           </div>
         )}
