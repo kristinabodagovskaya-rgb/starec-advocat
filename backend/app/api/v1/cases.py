@@ -118,6 +118,9 @@ async def get_case(
 
     # TODO: Проверить права доступа
 
+    # Подсчитываем реальное количество томов
+    volumes_count = db.query(Volume).filter(Volume.case_id == case_id).count()
+
     return {
         "id": case.id,
         "case_number": case.case_number,
@@ -128,6 +131,9 @@ async def get_case(
         "initiation_date": case.initiation_date.isoformat() if case.initiation_date else None,
         "status": case.status,
         "notes": case.notes,
+        "volumes_count": volumes_count,
+        "documents_count": 0,
+        "processing_progress": 0,
         "created_at": case.created_at.isoformat(),
         "updated_at": case.updated_at.isoformat()
     }
