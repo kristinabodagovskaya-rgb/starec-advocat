@@ -6,7 +6,7 @@ interface Volume {
   volume_number: number
   file_name: string
   file_size: number
-  pages_count: number
+  page_count: number
   processing_status: string
   ocr_quality: number
   created_at: string
@@ -47,10 +47,10 @@ export default function VolumesPage() {
 
   const getStatusBadge = (status: string) => {
     const styles = {
-      pending: 'bg-gray-100 text-gray-800',
-      processing: 'bg-yellow-100 text-yellow-800',
-      completed: 'bg-green-100 text-green-800',
-      failed: 'bg-red-100 text-red-800',
+      pending: 'bg-[#86868b] text-white',
+      processing: 'apple-badge-warning',
+      completed: 'apple-badge-success',
+      failed: 'apple-badge-danger',
     }
     const labels = {
       pending: 'Ожидает',
@@ -59,7 +59,7 @@ export default function VolumesPage() {
       failed: 'Ошибка',
     }
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles]}`}>
+      <span className={`apple-badge ${styles[status as keyof typeof styles]}`}>
         {labels[status as keyof typeof labels]}
       </span>
     )
@@ -67,32 +67,37 @@ export default function VolumesPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="apple-glass-card p-8">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0071e3]"></div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
+      <header className="apple-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <button
             onClick={() => navigate(`/cases/${id}`)}
-            className="flex items-center text-gray-600 hover:text-gray-900 transition-colors mb-4"
+            className="flex items-center text-[#6e6e73] hover:text-[#1d1d1f] transition-colors mb-4 group"
           >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 mr-2 transition-transform group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
             Назад к делу
           </button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Тома дела</h1>
-              <p className="text-gray-600">Всего томов: {volumes.length}</p>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-[#1d1d1f] tracking-tight">Тома дела</h1>
+              <p className="text-[#6e6e73] mt-1">Всего томов: {volumes.length}</p>
             </div>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            <button
+              onClick={() => navigate(`/cases/${id}/upload`)}
+              className="apple-btn-secondary"
+            >
               Добавить том
             </button>
           </div>
@@ -100,15 +105,18 @@ export default function VolumesPage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 apple-animate-slideUp">
         {volumes.length === 0 ? (
-          <div className="bg-white rounded-xl p-12 text-center shadow-sm">
-            <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="apple-glass-card p-12 text-center">
+            <svg className="w-16 h-16 text-[#86868b] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
-            <p className="text-gray-600 mb-4">Тома еще не загружены</p>
-            <button className="text-blue-600 hover:text-blue-700 font-medium">
-              Загрузить тома →
+            <p className="text-[#6e6e73] mb-4">Тома еще не загружены</p>
+            <button
+              onClick={() => navigate(`/cases/${id}/upload`)}
+              className="text-[#0071e3] hover:text-[#0077ed] font-medium transition-colors"
+            >
+              Загрузить тома
             </button>
           </div>
         ) : (
@@ -116,30 +124,34 @@ export default function VolumesPage() {
             {volumes.map((volume) => (
               <div
                 key={volume.id}
-                className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow border border-gray-100"
+                className="apple-glass-card p-6"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4 flex-1">
-                    <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-14 h-14 bg-[#0071e3]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
+                      <svg className="w-7 h-7 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center space-x-3 mb-1">
-                        <h3 className="text-lg font-semibold text-gray-900">
+                        <h3 className="text-lg font-semibold text-[#1d1d1f]">
                           Том {volume.volume_number}
                         </h3>
                         {getStatusBadge(volume.processing_status)}
                       </div>
-                      <p className="text-sm text-gray-600 mb-2">{volume.file_name}</p>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
+                      <p className="text-sm text-[#6e6e73] mb-2">{volume.file_name}</p>
+                      <div className="flex items-center space-x-4 text-sm text-[#86868b]">
                         <span>{formatFileSize(volume.file_size)}</span>
-                        <span>•</span>
-                        <span>{volume.pages_count} страниц</span>
+                        {volume.page_count > 0 && (
+                          <>
+                            <span className="text-[#d2d2d7]">|</span>
+                            <span>{volume.page_count} страниц</span>
+                          </>
+                        )}
                         {volume.ocr_quality > 0 && (
                           <>
-                            <span>•</span>
+                            <span className="text-[#d2d2d7]">|</span>
                             <span>OCR: {volume.ocr_quality}%</span>
                           </>
                         )}
@@ -147,14 +159,14 @@ export default function VolumesPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
+                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#0071e3] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
                     </button>
-                    <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
+                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#30d158] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
                     </button>
