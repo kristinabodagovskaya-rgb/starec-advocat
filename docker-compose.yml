@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: starec-postgres
+    environment:
+      POSTGRES_USER: starec_user
+      POSTGRES_PASSWORD: starec_pass
+      POSTGRES_DB: starec_advocat
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - starec-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starec_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB
+  mongo:
+    image: mongo:7
+    container_name: starec-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - starec-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: starec-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - starec-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: starec-backend
+    ports:
+      - "8083:8000"
+    environment:
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=starec_user
+      - POSTGRES_PASSWORD=starec_pass
+      - POSTGRES_DB=starec_advocat
+      - MONGODB_URL=mongodb://mongo:27017/starec_advocat
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DEBUG=True
+    volumes:
+      - ./backend:/app
+      - ./data/uploads:/var/data/starec-advocat/uploads
+      - ./data/processed:/var/data/starec-advocat/processed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - starec-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (OCR)
+  celery-ocr:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: starec-celery-ocr
+    environment:
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=starec_user
+      - POSTGRES_PASSWORD=starec_pass
+      - POSTGRES_DB=starec_advocat
+      - MONGODB_URL=mongodb://mongo:27017/starec_advocat
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend:/app
+      - ./data/uploads:/var/data/starec-advocat/uploads
+      - ./data/processed:/var/data/starec-advocat/processed
+    depends_on:
+      - postgres
+      - mongo
+      - redis
+    networks:
+      - starec-network
+    command: celery -A app.workers worker -Q ocr -c 3 -n ocr@%h --loglevel=info
+
+  # Celery Worker (Analysis)
+  celery-analysis:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: starec-celery-analysis
+    environment:
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=starec_user
+      - POSTGRES_PASSWORD=starec_pass
+      - POSTGRES_DB=starec_advocat
+      - MONGODB_URL=mongodb://mongo:27017/starec_advocat
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - mongo
+      - redis
+    networks:
+      - starec-network
+    command: celery -A app.workers worker -Q analysis -c 2 -n analysis@%h --loglevel=info
+
+  # Celery Beat (Scheduler)
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: starec-celery-beat
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    networks:
+      - starec-network
+    command: celery -A app.workers beat --loglevel=info
+
+  # Flower (Celery Monitoring)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: starec-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - redis
+    networks:
+      - starec-network
+    command: celery -A app.workers flower --port=5555
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: starec-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - starec-network
+
+networks:
+  starec-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:

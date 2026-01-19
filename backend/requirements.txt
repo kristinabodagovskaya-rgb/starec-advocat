@@ -1,0 +1,45 @@
+# FastAPI и зависимости
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# База данных
+sqlalchemy==2.0.23
+alembic==1.12.1
+psycopg2-binary==2.9.9
+pymongo==4.6.0
+
+# Валидация
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Аутентификация
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Celery и очереди
+celery==5.3.4
+redis==5.0.1
+
+# AI и ML
+anthropic==0.7.7
+openai==1.3.7
+langchain==0.0.350
+spacy==3.7.2
+
+# Обработка документов
+PyMuPDF==1.23.8
+pytesseract==0.3.10
+Pillow==10.1.0
+python-docx==1.1.0
+
+# Google Drive
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.108.0
+
+# Утилиты
+httpx==0.25.2
+aiofiles==23.2.1
+python-dateutil==2.8.2
