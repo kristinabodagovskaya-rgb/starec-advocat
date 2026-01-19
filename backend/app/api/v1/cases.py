@@ -43,22 +43,26 @@ async def get_cases(
     cases = query.offset(skip).limit(limit).all()
 
     # Возвращаем простой массив для frontend
-    return [
-        {
+    result = []
+    for case in cases:
+        # Подсчитываем реальное количество томов
+        volumes_count = db.query(Volume).filter(Volume.case_id == case.id).count()
+
+        result.append({
             "id": case.id,
             "case_number": case.case_number,
             "title": case.title,
             "article": case.article,
             "defendant_name": case.defendant_name,
             "status": case.status,
-            "volumes_count": 0,  # TODO: calculate from volumes table
+            "volumes_count": volumes_count,
             "documents_count": 0,  # TODO: calculate from documents table
             "processing_progress": 0,  # TODO: calculate
             "created_at": case.created_at.isoformat(),
             "updated_at": case.updated_at.isoformat()
-        }
-        for case in cases
-    ]
+        })
+
+    return result
 
 
 @router.post("/")
