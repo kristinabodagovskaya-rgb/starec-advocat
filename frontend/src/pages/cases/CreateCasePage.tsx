@@ -42,27 +42,27 @@ export default function CreateCasePage() {
     setIsSubmitting(true)
 
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch('/api/cases/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(formData),
       })
 
       if (response.ok) {
         const newCase = await response.json()
+        console.log('Case created successfully:', newCase)
         setStep(2)
         sessionStorage.setItem('newCaseId', newCase.id.toString())
       } else {
-        const errorData = await response.json()
-        alert(`Ошибка при создании дела: ${errorData.detail || 'Неизвестная ошибка'}`)
+        const errorText = await response.text()
+        console.error('Server error:', response.status, errorText)
+        alert(`Ошибка при создании дела: ${response.status} - ${errorText}`)
       }
     } catch (error) {
       console.error('Failed to create case:', error)
-      alert('Ошибка подключения к серверу')
+      alert(`Ошибка подключения к серверу: ${error}`)
     } finally {
       setIsSubmitting(false)
     }
