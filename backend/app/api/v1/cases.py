@@ -195,8 +195,30 @@ async def get_case_volumes(
 ):
     """Получить список томов дела"""
 
-    # TODO: Implement
-    return {"message": "TODO: Get case volumes"}
+    # Проверяем существование дела
+    case = db.query(Case).filter(Case.id == case_id).first()
+    if not case:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Дело не найдено"
+        )
+
+    # Получаем тома дела
+    volumes = db.query(Volume).filter(Volume.case_id == case_id).order_by(Volume.volume_number).all()
+
+    return [
+        {
+            "id": vol.id,
+            "volume_number": vol.volume_number,
+            "file_name": vol.file_name,
+            "file_size": vol.file_size,
+            "page_count": vol.page_count,
+            "processing_status": vol.processing_status,
+            "ocr_quality": vol.ocr_quality,
+            "created_at": vol.created_at.isoformat() if vol.created_at else None
+        }
+        for vol in volumes
+    ]
 
 
 @router.post("/{case_id}/volumes/sync")
@@ -218,12 +240,19 @@ async def get_case_statistics(
 ):
     """Получить статистику по делу"""
 
-    # TODO: Implement
+    # Считаем тома
+    volumes_count = db.query(Volume).filter(Volume.case_id == case_id).count()
+
+    # TODO: Добавить подсчет документов когда будет реализован
+    documents_count = 0
+    participants_count = 0
+    events_count = 0
+
     return {
-        "volumes_count": 0,
-        "documents_count": 0,
-        "participants_count": 0,
-        "events_count": 0
+        "volumes_count": volumes_count,
+        "documents_count": documents_count,
+        "participants_count": participants_count,
+        "events_count": events_count
     }
 
 

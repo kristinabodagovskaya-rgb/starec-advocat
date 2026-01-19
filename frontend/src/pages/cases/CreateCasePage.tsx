@@ -91,7 +91,7 @@ export default function CreateCasePage() {
     }
 
     if (uploadMethod === 'gdrive' && !gdriveLink) {
-      alert('Вставьте ссылку на папку Google Drive')
+      alert('Вставьте ссылку на Google Drive')
       return
     }
 
@@ -101,7 +101,6 @@ export default function CreateCasePage() {
       if (uploadMethod === 'local') {
         // Загрузка файлов с компьютера
         const formData = new FormData()
-        formData.append('case_id', caseId)
         selectedFiles.forEach((file) => {
           formData.append('files', file)
         })
@@ -112,10 +111,13 @@ export default function CreateCasePage() {
         })
 
         if (response.ok) {
+          const result = await response.json()
+          alert(`Успешно загружено ${result.uploaded} файлов!`)
           sessionStorage.removeItem('newCaseId')
           navigate(`/cases/${caseId}`)
         } else {
-          alert('Ошибка при загрузке файлов')
+          const errorData = await response.json()
+          alert(`Ошибка при загрузке файлов: ${errorData.detail || 'Неизвестная ошибка'}`)
         }
       } else {
         // Загрузка по ссылке Google Drive
@@ -130,15 +132,18 @@ export default function CreateCasePage() {
         })
 
         if (response.ok) {
+          const result = await response.json()
+          alert(`Успешно! ${result.message}`)
           sessionStorage.removeItem('newCaseId')
           navigate(`/cases/${caseId}`)
         } else {
-          alert('Ошибка при синхронизации с Google Drive')
+          const errorData = await response.json()
+          alert(`Ошибка: ${errorData.detail || 'Не удалось загрузить файл'}`)
         }
       }
     } catch (error) {
       console.error('Upload error:', error)
-      alert(`Ошибка: ${error}`)
+      alert(`Ошибка подключения: ${error}`)
     } finally {
       setIsSubmitting(false)
     }
