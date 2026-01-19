@@ -288,7 +288,7 @@ async def sync_gdrive_folder(
     request: GDriveSyncRequest,
     db: Session = Depends(get_db)
 ):
-    """Синхронизация томов из публичной папки Google Drive"""
+    """Синхронизация томов из публичной папки/файла Google Drive"""
 
     # Проверяем существование дела
     case = db.query(Case).filter(Case.id == case_id).first()
@@ -298,23 +298,90 @@ async def sync_gdrive_folder(
             detail="Дело не найдено"
         )
 
-    # Извлекаем folder ID из ссылки
-    folder_id_match = re.search(r'/folders/([a-zA-Z0-9_-]+)', request.gdrive_link)
-    if not folder_id_match:
+    # Извлекаем ID из ссылки (поддержка папок и файлов)
+    folder_match = re.search(r'/folders/([a-zA-Z0-9_-]+)', request.gdrive_link)
+    file_match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', request.gdrive_link)
+
+    resource_type = None
+    resource_id = None
+
+    if folder_match:
+        resource_type = "folder"
+        resource_id = folder_match.group(1)
+    elif file_match:
+        resource_type = "file"
+        resource_id = file_match.group(1)
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Неверная ссылка на папку Google Drive"
+            detail="Неверная ссылка на Google Drive. Поддерживаются ссылки на папки и файлы."
         )
 
-    folder_id = folder_id_match.group(1)
+    try:
+        # Импортируем необходимые библиотеки
+        import httpx
+        import json
 
-    # TODO: Реализовать загрузку файлов из публичной папки Google Drive
-    # Для этого нужно использовать Google Drive API без OAuth
-    # Использовать публичный доступ к папке
+        # Создаем директорию для загрузок
+        upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+        os.makedirs(upload_dir, exist_ok=True)
 
-    return {
-        "case_id": case_id,
-        "folder_id": folder_id,
-        "message": "Синхронизация будет реализована в следующей версии",
-        "status": "pending"
-    }
+        downloaded_files = []
+
+        if resource_type == "file":
+            # Загрузка одного файла
+            # Используем прямую ссылку для скачивания
+            download_url = f"https://drive.google.com/uc?export=download&id={resource_id}"
+
+            async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+                response = await client.get(download_url)
+
+                if response.status_code == 200:
+                    # Сохраняем файл
+                    filename = f"Том_{resource_id}.pdf"
+                    file_path = os.path.join(upload_dir, filename)
+
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+
+                    downloaded_files.append({
+                        "filename": filename,
+                        "path": file_path,
+                        "size": len(response.content)
+                    })
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Не удалось скачать файл. Убедитесь что файл доступен по ссылке. Статус: {response.status_code}"
+                    )
+
+        elif resource_type == "folder":
+            # Для папок нужен Google Drive API
+            # Пока возвращаем сообщение что нужна ссылка на файл
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Пока поддерживаются только ссылки на отдельные файлы. Загрузите файлы по одному или используйте загрузку с компьютера."
+            )
+
+        # TODO: Создать записи Volume в базе данных
+        # TODO: Поставить задачи на OCR обработку в Celery
+
+        return {
+            "case_id": case_id,
+            "resource_id": resource_id,
+            "resource_type": resource_type,
+            "downloaded": len(downloaded_files),
+            "files": downloaded_files,
+            "message": f"Загружено {len(downloaded_files)} файлов"
+        }
+
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при загрузке файла: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка: {str(e)}"
+        )
