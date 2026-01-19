@@ -5,10 +5,20 @@ API для работы с делами
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from pydantic import BaseModel
 
 from app.models import get_db, Case
 
 router = APIRouter()
+
+class CaseCreate(BaseModel):
+    case_number: str
+    title: str
+    article: str = None
+    defendant_name: str = None
+    investigation_organ: str = None
+    initiation_date: str = None
+    notes: str = None
 
 
 @router.get("/")
@@ -30,29 +40,28 @@ async def get_cases(
 
     cases = query.offset(skip).limit(limit).all()
 
-    return {
-        "total": query.count(),
-        "cases": [
-            {
-                "id": case.id,
-                "case_number": case.case_number,
-                "title": case.title,
-                "article": case.article,
-                "defendant_name": case.defendant_name,
-                "status": case.status,
-                "created_at": case.created_at.isoformat()
-            }
-            for case in cases
-        ]
-    }
+    # Возвращаем простой массив для frontend
+    return [
+        {
+            "id": case.id,
+            "case_number": case.case_number,
+            "title": case.title,
+            "article": case.article,
+            "defendant_name": case.defendant_name,
+            "status": case.status,
+            "volumes_count": 0,  # TODO: calculate from volumes table
+            "documents_count": 0,  # TODO: calculate from documents table
+            "processing_progress": 0,  # TODO: calculate
+            "created_at": case.created_at.isoformat(),
+            "updated_at": case.updated_at.isoformat()
+        }
+        for case in cases
+    ]
 
 
 @router.post("/")
 async def create_case(
-    case_number: str,
-    title: str,
-    article: str = None,
-    defendant_name: str = None,
+    case_data: CaseCreate,
     db: Session = Depends(get_db)
 ):
     """Создать новое дело"""
@@ -62,23 +71,27 @@ async def create_case(
 
     new_case = Case(
         user_id=user_id,
-        case_number=case_number,
-        title=title,
-        article=article,
-        defendant_name=defendant_name
+        case_number=case_data.case_number,
+        title=case_data.title,
+        article=case_data.article,
+        defendant_name=case_data.defendant_name,
+        investigative_body=case_data.investigation_organ,
+        notes=case_data.notes
     )
 
     db.add(new_case)
     db.commit()
     db.refresh(new_case)
 
+    # Возвращаем данные в формате, который ожидает frontend
     return {
-        "message": "Дело успешно создано",
-        "case": {
-            "id": new_case.id,
-            "case_number": new_case.case_number,
-            "title": new_case.title
-        }
+        "id": new_case.id,
+        "case_number": new_case.case_number,
+        "title": new_case.title,
+        "article": new_case.article,
+        "defendant_name": new_case.defendant_name,
+        "status": new_case.status,
+        "created_at": new_case.created_at.isoformat()
     }
 
 

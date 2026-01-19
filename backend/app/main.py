@@ -67,12 +67,21 @@ async def root():
         "docs": "/api/docs"
     }
 
-# Подключение роутеров
+# Подключение роутеров (v1 с префиксом и без для обратной совместимости)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+
 app.include_router(cases.router, prefix="/api/v1/cases", tags=["Cases"])
+app.include_router(cases.router, prefix="/api/cases", tags=["Cases"])
+
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
+app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
+
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["Analysis"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
+
 app.include_router(strategy.router, prefix="/api/v1/strategy", tags=["Strategy"])
+app.include_router(strategy.router, prefix="/api/strategy", tags=["Strategy"])
 
 # Startup event
 @app.on_event("startup")

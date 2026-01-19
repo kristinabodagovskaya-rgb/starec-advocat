@@ -41,43 +41,31 @@ export default function CreateCasePage() {
 
     setIsSubmitting(true)
 
-    // Simulate API call with delay
-    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch('/api/cases', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      })
 
-    // Create temporary case ID for demo
-    const tempCaseId = Date.now().toString()
-    sessionStorage.setItem('newCaseId', tempCaseId)
-    sessionStorage.setItem(`case_${tempCaseId}`, JSON.stringify(formData))
-
-    // Move to step 2
-    setStep(2)
-    setIsSubmitting(false)
-
-    // TODO: Uncomment when API is ready
-    // try {
-    //   const token = localStorage.getItem('token')
-    //   const response = await fetch('/api/cases', {
-    //     method: 'POST',
-    //     headers: {
-    //       'Content-Type': 'application/json',
-    //       'Authorization': `Bearer ${token}`,
-    //     },
-    //     body: JSON.stringify(formData),
-    //   })
-    //
-    //   if (response.ok) {
-    //     const newCase = await response.json()
-    //     setStep(2)
-    //     sessionStorage.setItem('newCaseId', newCase.id)
-    //   } else {
-    //     alert('Ошибка при создании дела')
-    //   }
-    // } catch (error) {
-    //   console.error('Failed to create case:', error)
-    //   alert('Ошибка подключения к серверу')
-    // } finally {
-    //   setIsSubmitting(false)
-    // }
+      if (response.ok) {
+        const newCase = await response.json()
+        setStep(2)
+        sessionStorage.setItem('newCaseId', newCase.id.toString())
+      } else {
+        const errorData = await response.json()
+        alert(`Ошибка при создании дела: ${errorData.detail || 'Неизвестная ошибка'}`)
+      }
+    } catch (error) {
+      console.error('Failed to create case:', error)
+      alert('Ошибка подключения к серверу')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleVolumesUpload = () => {

@@ -38,81 +38,17 @@ export default function DashboardPage() {
         const data = await response.json()
         setCases(data)
       } else {
-        // Load demo cases if API fails
-        loadDemoCases()
+        console.error('Failed to load cases:', response.status, response.statusText)
+        setCases([])
       }
     } catch (error) {
       console.error('Failed to load cases:', error)
-      // Load demo cases on error
-      loadDemoCases()
+      setCases([])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const loadDemoCases = () => {
-    // Check for any cases created in session
-    const sessionCases: Case[] = []
-
-    for (let i = 0; i < sessionStorage.length; i++) {
-      const key = sessionStorage.key(i)
-      if (key && key.startsWith('case_')) {
-        try {
-          const caseData = JSON.parse(sessionStorage.getItem(key) || '{}')
-          const caseId = parseInt(key.replace('case_', ''))
-          sessionCases.push({
-            id: caseId,
-            case_number: caseData.case_number,
-            title: caseData.title,
-            article: caseData.article,
-            defendant_name: caseData.defendant_name,
-            volumes_count: 0,
-            documents_count: 0,
-            processing_progress: 0,
-            status: 'active',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-        } catch (e) {
-          console.error('Failed to parse case data:', e)
-        }
-      }
-    }
-
-    // Add some demo cases for demonstration
-    if (sessionCases.length === 0) {
-      setCases([
-        {
-          id: 1,
-          case_number: '1234567',
-          title: 'УД в отношении Петрова А.В. по ст. 159 УК РФ',
-          article: 'ч.4 ст. 159 УК РФ',
-          defendant_name: 'Петров Алексей Владимирович',
-          volumes_count: 216,
-          documents_count: 1847,
-          processing_progress: 98,
-          status: 'active',
-          created_at: '2026-01-18T10:00:00Z',
-          updated_at: '2026-01-18T15:30:00Z',
-        },
-        {
-          id: 2,
-          case_number: '8765432',
-          title: 'УД по ст. 228 УК РФ',
-          article: 'ч.1 ст. 228 УК РФ',
-          defendant_name: 'Иванов Иван Иванович',
-          volumes_count: 45,
-          documents_count: 523,
-          processing_progress: 100,
-          status: 'completed',
-          created_at: '2026-01-15T10:00:00Z',
-          updated_at: '2026-01-15T15:30:00Z',
-        },
-      ])
-    } else {
-      setCases(sessionCases)
-    }
-  }
 
   const handleCreateCase = () => {
     navigate('/cases/new')
