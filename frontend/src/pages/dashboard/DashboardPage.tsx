@@ -58,6 +58,27 @@ export default function DashboardPage() {
     navigate('/login')
   }
 
+  const handleDeleteCase = async (caseId: number, caseNumber: string) => {
+    if (!confirm(`Удалить дело № ${caseNumber}? Это действие нельзя отменить.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/cases/${caseId}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        setCases(cases.filter(c => c.id !== caseId))
+      } else {
+        alert('Ошибка при удалении дела')
+      }
+    } catch (error) {
+      console.error('Failed to delete case:', error)
+      alert('Ошибка при удалении дела')
+    }
+  }
+
   const activeCases = cases.filter(c => c.status !== 'archived')
   const archivedCases = cases.filter(c => c.status === 'archived')
 
@@ -236,6 +257,15 @@ export default function DashboardPage() {
                           Продолжить анализ
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteCase(caseItem.id, caseItem.case_number)}
+                        className="p-2 hover:bg-[#ff3b30]/10 rounded-xl transition-colors group"
+                        title="Удалить дело"
+                      >
+                        <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#ff3b30] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -276,12 +306,23 @@ export default function DashboardPage() {
                         </h4>
                         <p className="text-sm text-[#6e6e73]">{caseItem.title}</p>
                       </div>
-                      <button
-                        onClick={() => handleOpenCase(caseItem.id)}
-                        className="px-4 py-2 bg-[#d2d2d7] hover:bg-[#c5c5ca] text-[#424245] rounded-xl text-sm font-medium transition-colors"
-                      >
-                        Открыть
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleOpenCase(caseItem.id)}
+                          className="px-4 py-2 bg-[#d2d2d7] hover:bg-[#c5c5ca] text-[#424245] rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Открыть
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCase(caseItem.id, caseItem.case_number)}
+                          className="p-2 hover:bg-[#ff3b30]/10 rounded-xl transition-colors group"
+                          title="Удалить дело"
+                        >
+                          <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#ff3b30] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
