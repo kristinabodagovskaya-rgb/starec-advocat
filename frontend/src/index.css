@@ -349,12 +349,13 @@
 }
 
 .apple-nav-card-primary {
-    background: linear-gradient(135deg, var(--apple-blue) 0%, #0077ed 100%);
+    background: #1d1d1f;
     color: white;
 }
 
 .apple-nav-card-primary:hover {
-    box-shadow: 0 4px 8px rgba(0, 113, 227, 0.2), 0 16px 32px rgba(0, 113, 227, 0.3);
+    background: #000000;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15), 0 16px 32px rgba(0, 0, 0, 0.2);
 }
 
 /* ============================================
@@ -482,7 +483,7 @@
 }
 
 .apple-badge-info {
-    background: var(--apple-blue);
+    background: #1d1d1f;
     color: white;
 }
 

@@ -140,12 +140,12 @@ export default function DashboardPage() {
         {/* Create New Case Button */}
         <button
           onClick={handleCreateCase}
-          className="w-full mb-8 apple-nav-card apple-nav-card-primary flex items-center justify-center"
+          className="mb-8 apple-btn-primary flex items-center"
         >
-          <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
-          <span className="text-lg font-medium">Создать новое дело</span>
+          <span>Создать дело</span>
         </button>
 
         {/* Active Cases */}
