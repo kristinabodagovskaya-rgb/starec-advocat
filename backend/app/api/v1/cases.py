@@ -385,15 +385,30 @@ async def sync_gdrive_folder(
 
         if resource_type == "file":
             # Загрузка одного файла
-            # Используем прямую ссылку для скачивания
-            download_url = f"https://drive.google.com/uc?export=download&id={resource_id}"
-
             async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+                # Сначала получаем имя файла через Google Drive API
+                metadata_url = f"https://www.googleapis.com/drive/v3/files/{resource_id}?fields=name,size&key=AIzaSyC1qbk75GzWMsU2EmFQsyRous9fRj5OV9k"
+                meta_response = await client.get(metadata_url)
+
+                if meta_response.status_code == 200:
+                    file_meta = meta_response.json()
+                    original_filename = file_meta.get('name', f'Том_{resource_id}.pdf')
+                else:
+                    original_filename = f'Том_{resource_id}.pdf'
+
+                # Скачиваем файл (с обработкой больших файлов)
+                download_url = f"https://drive.google.com/uc?export=download&id={resource_id}"
                 response = await client.get(download_url)
 
-                if response.status_code == 200:
-                    # Сохраняем файл
-                    filename = f"Том_{resource_id}.pdf"
+                # Проверяем на предупреждение о большом файле
+                if b'confirm=' in response.content or b'download_warning' in response.content:
+                    # Для больших файлов нужно подтверждение
+                    confirm_url = f"https://drive.google.com/uc?export=download&id={resource_id}&confirm=t"
+                    response = await client.get(confirm_url)
+
+                if response.status_code == 200 and len(response.content) > 1000:
+                    # Сохраняем файл с оригинальным именем
+                    filename = original_filename
                     file_path = os.path.join(upload_dir, filename)
 
                     with open(file_path, 'wb') as f:
@@ -427,9 +442,15 @@ async def sync_gdrive_folder(
                     downloaded_files[-1]["volume_id"] = new_volume.id
                     downloaded_files[-1]["volume_number"] = new_volume.volume_number
                 else:
+                    # Файл слишком маленький - скорее всего HTML страница с ошибкой
+                    if len(response.content) < 1000:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="Файл не загрузился. Убедитесь что файл публично доступен (настройки доступа: 'Все у кого есть ссылка')"
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Не удалось скачать файл. Убедитесь что файл доступен по ссылке. Статус: {response.status_code}"
+                        detail=f"Не удалось скачать файл. Статус: {response.status_code}"
                     )
 
         elif resource_type == "folder":
