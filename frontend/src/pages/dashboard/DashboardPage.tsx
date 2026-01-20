@@ -85,7 +85,7 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="apple-glass-card p-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0071e3] mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d1d1f] mx-auto"></div>
           <p className="mt-4 text-[#6e6e73] text-center">Загрузка...</p>
         </div>
       </div>
@@ -109,7 +109,7 @@ export default function DashboardPage() {
                 <span className="absolute top-1 right-1 block h-2 w-2 rounded-full bg-[#ff3b30]"></span>
               </button>
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-[#0071e3] rounded-full flex items-center justify-center text-white font-medium">
+                <div className="w-8 h-8 bg-[#1d1d1f] rounded-full flex items-center justify-center text-white font-medium">
                   А
                 </div>
                 <span className="text-sm font-medium text-[#1d1d1f]">Адвокат</span>
@@ -130,7 +130,7 @@ export default function DashboardPage() {
         {/* Page Title */}
         <div className="mb-6">
           <h2 className="text-3xl font-semibold text-[#1d1d1f] tracking-tight flex items-center">
-            <svg className="w-8 h-8 mr-3 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 mr-3 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             Мои дела
@@ -162,7 +162,7 @@ export default function DashboardPage() {
               <p className="text-[#6e6e73] mb-4">У вас пока нет активных дел</p>
               <button
                 onClick={handleCreateCase}
-                className="text-[#0071e3] hover:text-[#0077ed] font-medium transition-colors"
+                className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium transition-colors"
               >
                 Создать первое дело
               </button>
@@ -177,8 +177,8 @@ export default function DashboardPage() {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center space-x-3 mb-2">
-                        <div className="w-10 h-10 bg-[#0071e3]/10 rounded-xl flex items-center justify-center">
-                          <svg className="w-5 h-5 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-10 h-10 bg-[#1d1d1f]/10 rounded-xl flex items-center justify-center">
+                          <svg className="w-5 h-5 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                           </svg>
                         </div>
@@ -210,7 +210,7 @@ export default function DashboardPage() {
                       <div className="flex items-center space-x-2">
                         <div className="flex-1 bg-[#d2d2d7] rounded-full h-2">
                           <div
-                            className="bg-[#0071e3] h-2 rounded-full transition-all"
+                            className="bg-[#1d1d1f] h-2 rounded-full transition-all"
                             style={{ width: `${caseItem.processing_progress || 0}%` }}
                           ></div>
                         </div>

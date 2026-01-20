@@ -75,7 +75,7 @@ function App() {
             <div className="apple-glass-card p-8 text-center">
               <h1 className="text-6xl font-semibold text-[#1d1d1f] mb-4">404</h1>
               <p className="text-[#6e6e73] mb-4">Страница не найдена</p>
-              <a href="/" className="text-[#0071e3] hover:text-[#0077ed] font-medium">
+              <a href="/" className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium">
                 Вернуться на главную
               </a>
             </div>

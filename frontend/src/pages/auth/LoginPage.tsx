@@ -94,10 +94,10 @@ export default function LoginPage() {
 
             <div className="flex items-center justify-between text-sm">
               <label className="flex items-center cursor-pointer">
-                <input type="checkbox" className="rounded border-[#d2d2d7] text-[#0071e3] focus:ring-[#0071e3]" />
+                <input type="checkbox" className="rounded border-[#d2d2d7] text-[#1d1d1f] focus:ring-[#1d1d1f]" />
                 <span className="ml-2 text-[#6e6e73]">Запомнить меня</span>
               </label>
-              <a href="#" className="text-[#0071e3] hover:text-[#0077ed] transition-colors">
+              <a href="#" className="text-[#1d1d1f] hover:text-[#1d1d1f] transition-colors">
                 Забыли пароль?
               </a>
             </div>
@@ -154,7 +154,7 @@ export default function LoginPage() {
           {/* Register Link */}
           <div className="mt-6 text-center text-sm text-[#6e6e73]">
             Нет аккаунта?{' '}
-            <a href="/register" className="text-[#0071e3] hover:text-[#0077ed] font-medium transition-colors">
+            <a href="/register" className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium transition-colors">
               Зарегистрироваться
             </a>
           </div>

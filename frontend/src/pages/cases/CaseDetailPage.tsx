@@ -84,7 +84,7 @@ export default function CaseDetailPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="apple-glass-card p-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0071e3]"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d1d1f]"></div>
         </div>
       </div>
     )
@@ -138,8 +138,8 @@ export default function CaseDetailPage() {
                 <p className="text-sm text-[#86868b] mb-1">Томов</p>
                 <p className="text-3xl font-semibold text-[#1d1d1f]">{caseData.volumes_count || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-[#0071e3]/10 rounded-xl flex items-center justify-center">
-                <svg className="w-6 h-6 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-[#1d1d1f]/10 rounded-xl flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
@@ -152,8 +152,8 @@ export default function CaseDetailPage() {
                 <p className="text-sm text-[#86868b] mb-1">Документов</p>
                 <p className="text-3xl font-semibold text-[#1d1d1f]">{caseData.documents_count || 0}</p>
               </div>
-              <div className="w-12 h-12 bg-[#30d158]/10 rounded-xl flex items-center justify-center">
-                <svg className="w-6 h-6 text-[#30d158]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-[#6e6e73]/10 rounded-xl flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
@@ -166,8 +166,8 @@ export default function CaseDetailPage() {
                 <p className="text-sm text-[#86868b] mb-1">Обработано</p>
                 <p className="text-3xl font-semibold text-[#1d1d1f]">{caseData.processing_progress || 0}%</p>
               </div>
-              <div className="w-12 h-12 bg-[#ff9500]/10 rounded-xl flex items-center justify-center">
-                <svg className="w-6 h-6 text-[#ff9500]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-[#6e6e73]/10 rounded-xl flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
@@ -180,8 +180,8 @@ export default function CaseDetailPage() {
                 <p className="text-sm text-[#86868b] mb-1">Статус</p>
                 <p className="text-lg font-medium text-[#1d1d1f] capitalize">{caseData.status === 'active' ? 'Активно' : caseData.status}</p>
               </div>
-              <div className="w-12 h-12 bg-[#30d158]/10 rounded-xl flex items-center justify-center">
-                <svg className="w-6 h-6 text-[#30d158]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 bg-[#6e6e73]/10 rounded-xl flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
@@ -197,12 +197,12 @@ export default function CaseDetailPage() {
             className="apple-nav-card text-left group"
           >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-[#0071e3]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#0071e3]/20 transition-colors">
-                <svg className="w-7 h-7 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 bg-[#1d1d1f]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#1d1d1f]/20 transition-colors">
+                <svg className="w-7 h-7 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
-              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#0071e3] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#1d1d1f] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </div>
@@ -216,12 +216,12 @@ export default function CaseDetailPage() {
             className="apple-nav-card text-left group"
           >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-[#30d158]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#30d158]/20 transition-colors">
-                <svg className="w-7 h-7 text-[#30d158]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 bg-[#6e6e73]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#6e6e73]/20 transition-colors">
+                <svg className="w-7 h-7 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#30d158] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#6e6e73] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </div>
@@ -235,12 +235,12 @@ export default function CaseDetailPage() {
             className="apple-nav-card text-left group"
           >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-[#af52de]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#af52de]/20 transition-colors">
-                <svg className="w-7 h-7 text-[#af52de]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 bg-[#6e6e73]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#6e6e73]/20 transition-colors">
+                <svg className="w-7 h-7 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
               </div>
-              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#af52de] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#6e6e73] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </div>
@@ -254,12 +254,12 @@ export default function CaseDetailPage() {
             className="apple-nav-card text-left group"
           >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 bg-[#ff9500]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#ff9500]/20 transition-colors">
-                <svg className="w-7 h-7 text-[#ff9500]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-14 h-14 bg-[#6e6e73]/10 rounded-2xl flex items-center justify-center group-hover:bg-[#6e6e73]/20 transition-colors">
+                <svg className="w-7 h-7 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                 </svg>
               </div>
-              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#ff9500] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-[#86868b] group-hover:text-[#6e6e73] group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </div>

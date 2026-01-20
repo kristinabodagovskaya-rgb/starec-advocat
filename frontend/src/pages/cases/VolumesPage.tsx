@@ -69,7 +69,7 @@ export default function VolumesPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="apple-glass-card p-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0071e3]"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1d1d1f]"></div>
         </div>
       </div>
     )
@@ -114,7 +114,7 @@ export default function VolumesPage() {
             <p className="text-[#6e6e73] mb-4">Тома еще не загружены</p>
             <button
               onClick={() => navigate(`/cases/${id}/upload`)}
-              className="text-[#0071e3] hover:text-[#0077ed] font-medium transition-colors"
+              className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium transition-colors"
             >
               Загрузить тома
             </button>
@@ -128,8 +128,8 @@ export default function VolumesPage() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4 flex-1">
-                    <div className="w-14 h-14 bg-[#0071e3]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
-                      <svg className="w-7 h-7 text-[#0071e3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-14 h-14 bg-[#1d1d1f]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
+                      <svg className="w-7 h-7 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
@@ -160,13 +160,13 @@ export default function VolumesPage() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
-                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#0071e3] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#1d1d1f] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                       </svg>
                     </button>
                     <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
-                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#30d158] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#6e6e73] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                       </svg>
                     </button>
