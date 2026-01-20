@@ -147,14 +147,14 @@
    BUTTONS (Apple Style)
    ============================================ */
 
-/* Primary Button (Dark) */
+/* Primary Button (Dark - main action) */
 .apple-btn-primary {
-    padding: 10px 20px;
-    background: var(--apple-gray-1);
+    padding: 8px 16px;
+    background: #1d1d1f;
     color: white;
     border: none;
-    border-radius: var(--radius-sm);
-    font-size: 0.875rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
     font-weight: 400;
     font-family: inherit;
     cursor: pointer;
@@ -165,22 +165,20 @@
 
 .apple-btn-primary:hover {
     background: #000000;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
 }
 
 .apple-btn-primary:active {
-    transform: translateY(-1px);
+    opacity: 0.8;
 }
 
-/* Secondary Button (Blue) */
+/* Secondary Button (Also Dark - like template) */
 .apple-btn-secondary {
-    padding: 10px 20px;
-    background: var(--apple-blue);
+    padding: 8px 16px;
+    background: #1d1d1f;
     color: white;
     border: none;
-    border-radius: var(--radius-sm);
-    font-size: 0.875rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
     font-weight: 400;
     font-family: inherit;
     cursor: pointer;
@@ -190,13 +188,11 @@
 }
 
 .apple-btn-secondary:hover {
-    background: var(--apple-blue-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 113, 227, 0.25);
+    background: #000000;
 }
 
 .apple-btn-secondary:active {
-    transform: translateY(-1px);
+    opacity: 0.8;
 }
 
 /* Outline Button */
