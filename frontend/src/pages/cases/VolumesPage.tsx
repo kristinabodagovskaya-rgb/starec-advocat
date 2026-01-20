@@ -252,23 +252,15 @@ export default function VolumesPage() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <button
-                      onClick={() => window.open(`/api/cases/${id}/volumes/${volume.id}/file`, '_blank')}
-                      className="p-3 hover:bg-black/5 rounded-xl transition-colors group"
-                      title="Открыть PDF"
+                      onClick={() => navigate(`/cases/${id}/volumes/${volume.id}/view`)}
+                      className="apple-btn-primary"
                     >
-                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#1d1d1f] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    </button>
-                    <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
-                      <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#6e6e73] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
+                      Открыть
                     </button>
                     <button
                       onClick={() => handleDeleteVolume(volume.id)}
                       className="p-3 hover:bg-red-50 rounded-xl transition-colors group"
+                      title="Удалить"
                     >
                       <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-red-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

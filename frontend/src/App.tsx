@@ -4,6 +4,7 @@ import DashboardPage from './pages/dashboard/DashboardPage'
 import CreateCasePage from './pages/cases/CreateCasePage'
 import CaseDetailPage from './pages/cases/CaseDetailPage'
 import VolumesPage from './pages/cases/VolumesPage'
+import PDFViewerPage from './pages/cases/PDFViewerPage'
 import DocumentsPage from './pages/cases/DocumentsPage'
 import AnalysisPage from './pages/cases/AnalysisPage'
 import StrategyPage from './pages/cases/StrategyPage'
@@ -44,6 +45,11 @@ function App() {
         <Route path="/cases/:id/volumes" element={
           <ProtectedRoute>
             <VolumesPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/cases/:id/volumes/:volumeId/view" element={
+          <ProtectedRoute>
+            <PDFViewerPage />
           </ProtectedRoute>
         } />
         <Route path="/cases/:id/documents" element={
