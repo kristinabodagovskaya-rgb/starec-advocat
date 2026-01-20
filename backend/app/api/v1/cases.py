@@ -231,6 +231,37 @@ async def get_case_volumes(
     ]
 
 
+@router.delete("/{case_id}/volumes/{volume_id}")
+async def delete_volume(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Удалить том"""
+
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Том не найден"
+        )
+
+    # Удаляем файл с диска если существует
+    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    file_path = os.path.join(upload_dir, volume.file_name)
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    db.delete(volume)
+    db.commit()
+
+    return {"message": "Том успешно удален"}
+
+
 @router.post("/{case_id}/volumes/sync")
 async def sync_gdrive_volumes(
     case_id: int,
