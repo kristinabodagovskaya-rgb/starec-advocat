@@ -158,7 +158,7 @@ export default function CreateCasePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen ">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -333,7 +333,7 @@ export default function CreateCasePage() {
                 <button
                   type="button"
                   onClick={() => navigate('/')}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover: transition-colors font-medium"
                 >
                   Отмена
                 </button>
@@ -496,7 +496,7 @@ export default function CreateCasePage() {
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover: transition-colors font-medium"
               >
                 Назад
               </button>
@@ -504,7 +504,7 @@ export default function CreateCasePage() {
                 <button
                   type="button"
                   onClick={handleSkipUpload}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover: transition-colors font-medium"
                 >
                   Пропустить
                 </button>
