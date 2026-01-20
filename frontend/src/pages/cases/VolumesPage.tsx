@@ -86,8 +86,19 @@ export default function VolumesPage() {
           setSelectedFiles([])
           loadVolumes()
         } else {
-          const errorData = await response.json()
-          alert(`Ошибка: ${errorData.detail || 'Неизвестная ошибка'}`)
+          let errorMessage = `Ошибка ${response.status}`
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.detail || errorMessage
+          } catch {
+            const text = await response.text()
+            if (text.includes('413') || response.status === 413) {
+              errorMessage = 'Файл слишком большой. Максимум 100MB через Cloudflare.'
+            } else if (text.length > 0) {
+              errorMessage = text.substring(0, 200)
+            }
+          }
+          alert(`Ошибка: ${errorMessage}`)
         }
       } else if (uploadMethod === 'gdrive' && gdriveLink) {
         const response = await fetch(`/api/cases/${id}/sync-gdrive/`, {
@@ -103,8 +114,14 @@ export default function VolumesPage() {
           setGdriveLink('')
           loadVolumes()
         } else {
-          const errorData = await response.json()
-          alert(`Ошибка: ${errorData.detail || 'Не удалось загрузить файл'}`)
+          let errorMessage = `Ошибка ${response.status}`
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.detail || errorMessage
+          } catch {
+            errorMessage = 'Не удалось загрузить файл'
+          }
+          alert(`Ошибка: ${errorMessage}`)
         }
       }
     } catch (error) {
