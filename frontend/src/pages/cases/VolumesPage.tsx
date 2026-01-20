@@ -139,13 +139,13 @@ export default function VolumesPage() {
 
   const getStatusBadge = (status: string) => {
     const styles = {
-      pending: 'bg-[#86868b] text-white',
+      pending: 'apple-badge-success',
       processing: 'apple-badge-warning',
       completed: 'apple-badge-success',
       failed: 'apple-badge-danger',
     }
     const labels = {
-      pending: 'Ожидает',
+      pending: 'Загружен',
       processing: 'Обработка',
       completed: 'Готово',
       failed: 'Ошибка',
@@ -190,7 +190,7 @@ export default function VolumesPage() {
               onClick={() => setShowUploadModal(true)}
               className="apple-btn-secondary"
             >
-              Добавить том
+              Загрузить файл
             </button>
           </div>
         </div>
@@ -203,12 +203,12 @@ export default function VolumesPage() {
             <svg className="w-16 h-16 text-[#86868b] mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
             </svg>
-            <p className="text-[#6e6e73] mb-4">Тома еще не загружены</p>
+            <p className="text-[#6e6e73] mb-4">Файлы еще не загружены</p>
             <button
               onClick={() => setShowUploadModal(true)}
               className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium transition-colors"
             >
-              Загрузить тома
+              Загрузить файл
             </button>
           </div>
         ) : (
@@ -251,7 +251,11 @@ export default function VolumesPage() {
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <button className="p-3 hover:bg-black/5 rounded-xl transition-colors group">
+                    <button
+                      onClick={() => window.open(`/api/cases/${id}/volumes/${volume.id}/file`, '_blank')}
+                      className="p-3 hover:bg-black/5 rounded-xl transition-colors group"
+                      title="Открыть PDF"
+                    >
                       <svg className="w-5 h-5 text-[#6e6e73] group-hover:text-[#1d1d1f] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -283,7 +287,7 @@ export default function VolumesPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-[#1d1d1f]">Загрузить тома</h2>
+              <h2 className="text-xl font-semibold text-[#1d1d1f]">Загрузить файл</h2>
               <button
                 onClick={() => setShowUploadModal(false)}
                 className="p-2 hover:bg-black/5 rounded-xl transition-colors"

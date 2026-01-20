@@ -3,6 +3,7 @@ API для работы с делами
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -260,6 +261,42 @@ async def delete_volume(
     db.commit()
 
     return {"message": "Том успешно удален"}
+
+
+@router.get("/{case_id}/volumes/{volume_id}/file")
+async def get_volume_file(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить PDF файл тома"""
+
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Том не найден"
+        )
+
+    # Путь к файлу
+    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Файл не найден на сервере"
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=volume.file_name
+    )
 
 
 @router.post("/{case_id}/volumes/sync")
