@@ -295,7 +295,7 @@ async def get_volume_file(
     return FileResponse(
         path=file_path,
         media_type="application/pdf",
-        filename=volume.file_name
+        headers={"Content-Disposition": f"inline; filename=\"{volume.file_name}\""}
     )
 
 
