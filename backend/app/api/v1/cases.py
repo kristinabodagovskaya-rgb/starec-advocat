@@ -427,17 +427,26 @@ async def sync_gdrive_folder(
                 else:
                     original_filename = f'Том_{resource_id}.pdf'
 
-                # Скачиваем файл (с обработкой больших файлов)
-                download_url = f"https://drive.google.com/uc?export=download&id={resource_id}"
+                # Скачиваем файл (с обработкой больших файлов и virus scan)
+                # Сразу используем confirm=t чтобы обойти все предупреждения
+                download_url = f"https://drive.google.com/uc?export=download&id={resource_id}&confirm=t"
                 response = await client.get(download_url)
 
-                # Проверяем на предупреждение о большом файле
-                if b'confirm=' in response.content or b'download_warning' in response.content:
-                    # Для больших файлов нужно подтверждение
-                    confirm_url = f"https://drive.google.com/uc?export=download&id={resource_id}&confirm=t"
-                    response = await client.get(confirm_url)
+                # Проверяем что это реальный файл, а не HTML страница
+                is_html = (
+                    b'<!DOCTYPE html>' in response.content[:100] or
+                    b'<html>' in response.content[:100] or
+                    b'Virus scan warning' in response.content or
+                    b'Google Drive' in response.content[:500]
+                )
 
-                if response.status_code == 200 and len(response.content) > 1000:
+                if is_html:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Не удалось скачать файл. Google Drive требует ручного подтверждения. Скачайте файл вручную и загрузите через 'С компьютера'."
+                    )
+
+                if response.status_code == 200 and len(response.content) > 5000:
                     # Сохраняем файл с оригинальным именем
                     filename = original_filename
                     file_path = os.path.join(upload_dir, filename)
