@@ -183,8 +183,8 @@ export default function VolumesPage() {
           </button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-semibold text-[#1d1d1f] tracking-tight">Тома дела</h1>
-              <p className="text-[#6e6e73] mt-1">Всего томов: {volumes.length}</p>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-[#1d1d1f] tracking-tight">Дело</h1>
+              <p className="text-[#6e6e73] mt-1">Документов: {volumes.length}</p>
             </div>
             <button
               onClick={() => setShowUploadModal(true)}
@@ -228,11 +228,10 @@ export default function VolumesPage() {
                     <div className="flex-1">
                       <div className="flex items-center space-x-3 mb-1">
                         <h3 className="text-lg font-semibold text-[#1d1d1f]">
-                          Том {volume.volume_number}
+                          {volume.file_name}
                         </h3>
                         {getStatusBadge(volume.processing_status)}
                       </div>
-                      <p className="text-sm text-[#6e6e73] mb-2">{volume.file_name}</p>
                       <div className="flex items-center space-x-4 text-sm text-[#86868b]">
                         <span>{formatFileSize(volume.file_size)}</span>
                         {volume.page_count > 0 && (
