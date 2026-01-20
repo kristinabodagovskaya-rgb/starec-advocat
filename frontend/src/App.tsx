@@ -17,7 +17,7 @@ function ProtectedRoute({ children }: { children: JSX.Element }) {
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <Routes>
         {/* Authentication */}
         <Route path="/login" element={<LoginPage />} />
@@ -71,12 +71,12 @@ function App() {
 
         {/* 404 */}
         <Route path="*" element={
-          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-            <div className="text-center">
-              <h1 className="text-6xl font-bold text-gray-900 mb-4">404</h1>
-              <p className="text-gray-600 mb-4">Страница не найдена</p>
-              <a href="/" className="text-blue-600 hover:text-blue-700 font-medium">
-                Вернуться на главную →
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="apple-glass-card p-8 text-center">
+              <h1 className="text-6xl font-semibold text-[#1d1d1f] mb-4">404</h1>
+              <p className="text-[#6e6e73] mb-4">Страница не найдена</p>
+              <a href="/" className="text-[#0071e3] hover:text-[#0077ed] font-medium">
+                Вернуться на главную
               </a>
             </div>
           </div>
