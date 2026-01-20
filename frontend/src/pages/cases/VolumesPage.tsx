@@ -17,6 +17,11 @@ export default function VolumesPage() {
   const navigate = useNavigate()
   const [volumes, setVolumes] = useState<Volume[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [uploadMethod, setUploadMethod] = useState<'local' | 'gdrive'>('local')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [gdriveLink, setGdriveLink] = useState('')
+  const [isUploading, setIsUploading] = useState(false)
 
   useEffect(() => {
     loadVolumes()
@@ -37,6 +42,56 @@ export default function VolumesPage() {
       console.error('Failed to load volumes:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleUpload = async () => {
+    setIsUploading(true)
+    try {
+      if (uploadMethod === 'local' && selectedFiles.length > 0) {
+        const formData = new FormData()
+        selectedFiles.forEach((file) => {
+          formData.append('files', file)
+        })
+
+        const response = await fetch(`/api/cases/${id}/upload-volumes/`, {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          alert(`Успешно загружено ${result.uploaded} файлов!`)
+          setShowUploadModal(false)
+          setSelectedFiles([])
+          loadVolumes()
+        } else {
+          const errorData = await response.json()
+          alert(`Ошибка: ${errorData.detail || 'Неизвестная ошибка'}`)
+        }
+      } else if (uploadMethod === 'gdrive' && gdriveLink) {
+        const response = await fetch(`/api/cases/${id}/sync-gdrive/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gdrive_link: gdriveLink }),
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          alert(`Успешно! ${result.message}`)
+          setShowUploadModal(false)
+          setGdriveLink('')
+          loadVolumes()
+        } else {
+          const errorData = await response.json()
+          alert(`Ошибка: ${errorData.detail || 'Не удалось загрузить файл'}`)
+        }
+      }
+    } catch (error) {
+      console.error('Upload error:', error)
+      alert(`Ошибка подключения: ${error}`)
+    } finally {
+      setIsUploading(false)
     }
   }
 
@@ -95,7 +150,7 @@ export default function VolumesPage() {
               <p className="text-[#6e6e73] mt-1">Всего томов: {volumes.length}</p>
             </div>
             <button
-              onClick={() => navigate(`/cases/${id}/upload`)}
+              onClick={() => setShowUploadModal(true)}
               className="apple-btn-secondary"
             >
               Добавить том
@@ -113,7 +168,7 @@ export default function VolumesPage() {
             </svg>
             <p className="text-[#6e6e73] mb-4">Тома еще не загружены</p>
             <button
-              onClick={() => navigate(`/cases/${id}/upload`)}
+              onClick={() => setShowUploadModal(true)}
               className="text-[#1d1d1f] hover:text-[#1d1d1f] font-medium transition-colors"
             >
               Загрузить тома
@@ -177,6 +232,105 @@ export default function VolumesPage() {
           </div>
         )}
       </main>
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-[#1d1d1f]">Загрузить тома</h2>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="p-2 hover:bg-black/5 rounded-xl transition-colors"
+              >
+                <svg className="w-5 h-5 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Upload Method Toggle */}
+            <div className="flex space-x-2 mb-6">
+              <button
+                onClick={() => setUploadMethod('local')}
+                className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-colors ${
+                  uploadMethod === 'local'
+                    ? 'bg-[#1d1d1f] text-white'
+                    : 'bg-[#f5f5f7] text-[#6e6e73] hover:bg-[#e8e8ed]'
+                }`}
+              >
+                С компьютера
+              </button>
+              <button
+                onClick={() => setUploadMethod('gdrive')}
+                className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-colors ${
+                  uploadMethod === 'gdrive'
+                    ? 'bg-[#1d1d1f] text-white'
+                    : 'bg-[#f5f5f7] text-[#6e6e73] hover:bg-[#e8e8ed]'
+                }`}
+              >
+                Google Drive
+              </button>
+            </div>
+
+            {uploadMethod === 'local' ? (
+              <div className="space-y-4">
+                <div
+                  className="border-2 border-dashed border-[#d2d2d7] rounded-xl p-8 text-center cursor-pointer hover:border-[#86868b] transition-colors"
+                  onClick={() => document.getElementById('file-input')?.click()}
+                >
+                  <svg className="w-12 h-12 text-[#86868b] mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <p className="text-[#6e6e73]">
+                    {selectedFiles.length > 0
+                      ? `Выбрано файлов: ${selectedFiles.length}`
+                      : 'Нажмите для выбора PDF файлов'}
+                  </p>
+                </div>
+                <input
+                  id="file-input"
+                  type="file"
+                  accept=".pdf"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+                />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Вставьте ссылку на файл Google Drive"
+                  value={gdriveLink}
+                  onChange={(e) => setGdriveLink(e.target.value)}
+                  className="w-full px-4 py-3 border border-[#d2d2d7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1d1d1f] focus:border-transparent"
+                />
+                <p className="text-sm text-[#86868b]">
+                  Файл должен быть доступен по ссылке (настройки: "Все у кого есть ссылка")
+                </p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="flex-1 py-3 px-4 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl font-medium hover:bg-[#e8e8ed] transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={isUploading || (uploadMethod === 'local' ? selectedFiles.length === 0 : !gdriveLink)}
+                className="flex-1 py-3 px-4 bg-[#1d1d1f] text-white rounded-xl font-medium hover:bg-[#424245] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? 'Загрузка...' : 'Загрузить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
