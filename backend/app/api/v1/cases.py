@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
+from urllib.parse import quote
 import os
 import re
 
@@ -292,10 +293,12 @@ async def get_volume_file(
             detail="Файл не найден на сервере"
         )
 
+    # Encode filename for Content-Disposition header (supports Cyrillic)
+    encoded_filename = quote(volume.file_name)
     return FileResponse(
         path=file_path,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename=\"{volume.file_name}\""}
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"}
     )
 
 
