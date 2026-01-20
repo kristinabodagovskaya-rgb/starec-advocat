@@ -269,7 +269,7 @@ export default function CaseDetailPage() {
 
           {/* Upload Volumes - Primary Card */}
           <button
-            onClick={() => navigate(`/cases/${id}/upload`)}
+            onClick={() => navigate(`/cases/${id}/volumes`)}
             className="apple-nav-card apple-nav-card-primary text-left group"
           >
             <div className="flex items-center justify-between mb-4">
