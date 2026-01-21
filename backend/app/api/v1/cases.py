@@ -10,10 +10,43 @@ from pydantic import BaseModel
 from urllib.parse import quote
 import os
 import re
+import json
+import base64
 
 from app.models import get_db, Case, Volume
+from app.core.config import settings
+
+# Для работы с PDF и Claude API
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
+
+try:
+    import anthropic
+    HAS_ANTHROPIC = True
+except ImportError:
+    HAS_ANTHROPIC = False
+
+try:
+    from openai import OpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+
+try:
+    import pytesseract
+    from PIL import Image
+    import io
+    HAS_TESSERACT = True
+except ImportError:
+    HAS_TESSERACT = False
 
 router = APIRouter()
+
+# Используем настраиваемую директорию для загрузок
+UPLOAD_BASE_DIR = settings.UPLOAD_DIR
 
 class CaseCreate(BaseModel):
     case_number: str
@@ -253,7 +286,7 @@ async def delete_volume(
         )
 
     # Удаляем файл с диска если существует
-    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
     file_path = os.path.join(upload_dir, volume.file_name)
     if os.path.exists(file_path):
         os.remove(file_path)
@@ -284,7 +317,7 @@ async def get_volume_file(
         )
 
     # Путь к файлу
-    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
     file_path = os.path.join(upload_dir, volume.file_name)
 
     if not os.path.exists(file_path):
@@ -300,6 +333,239 @@ async def get_volume_file(
         media_type="application/pdf",
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_filename}"}
     )
+
+
+@router.post("/{case_id}/volumes/{volume_id}/extract-documents")
+async def extract_documents_from_volume(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Извлечь список документов из PDF тома с помощью Claude AI.
+    Анализирует структуру PDF (ОПИСЬ) и определяет границы документов.
+    """
+
+    if not HAS_PYMUPDF:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PyMuPDF не установлен. Выполните: pip install pymupdf"
+        )
+
+    if not HAS_ANTHROPIC:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Anthropic не установлен. Выполните: pip install anthropic"
+        )
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ANTHROPIC_API_KEY не настроен. Добавьте ключ в .env файл"
+        )
+
+    # Получаем том из базы
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Том не найден"
+        )
+
+    # Путь к файлу
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Файл не найден на сервере"
+        )
+
+    try:
+        # Открываем PDF
+        doc = fitz.open(file_path)
+        total_pages = len(doc)
+
+        # Извлекаем текст первых 30 страниц для проверки типа PDF
+        test_text_length = 0
+        for page_num in range(min(30, total_pages)):
+            page = doc[page_num]
+            test_text_length += len(page.get_text().strip())
+
+        is_scanned = test_text_length < 500
+        print(f"[DEBUG] Text length: {test_text_length}, is_scanned: {is_scanned}")
+
+        # ===== Claude Vision SONNET - верхняя половина страницы (ТЕСТ: 30 страниц) =====
+        print(f"[DEBUG] Claude Vision SONNET started (TEST: first 30 pages)")
+
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        def get_page_top_image(page, crop_ratio=0.5):
+            """Получает картинку верхней части страницы (40%)"""
+            # Полный размер страницы
+            full_pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+
+            # Обрезаем до верхней части
+            height = full_pix.height
+            crop_height = int(height * crop_ratio)
+
+            # Создаём обрезанное изображение
+            img = Image.frombytes("RGB", [full_pix.width, full_pix.height], full_pix.samples)
+            cropped = img.crop((0, 0, full_pix.width, crop_height))
+
+            # Конвертируем в base64
+            buffer = io.BytesIO()
+            cropped.save(buffer, format="PNG", optimize=True)
+            img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+            return img_base64
+
+        def analyze_page_with_vision(page, page_num: int) -> dict:
+            """Анализирует верхнюю часть страницы через Claude Vision"""
+            try:
+                img_base64 = get_page_top_image(page, crop_ratio=0.5)
+
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=400,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": img_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": """Это страница из тома уголовного дела. Определи, начинается ли здесь НОВЫЙ ДОКУМЕНТ.
+
+is_start = true ТОЛЬКО если это РЕАЛЬНЫЙ ДОКУМЕНТ с заголовком:
+- "ПОСТАНОВЛЕНИЕ о..." (о возбуждении, о продлении, о привлечении...)
+- "ПРОТОКОЛ допроса/осмотра/обыска..."
+- "ЗАКЛЮЧЕНИЕ эксперта..."
+- "РАПОРТ об обнаружении..."
+- "УВЕДОМЛЕНИЕ о..."
+
+ОБЯЗАТЕЛЬНО должна быть ДАТА документа на странице!
+
+is_start = false (ЭТО НЕ ДОКУМЕНТ):
+- Титульный лист тома (Следственное управление, Том №, уголовное дело №)
+- ОПИСЬ/оглавление (таблица со списком "Копия постановления...", "Копия протокола...")
+- Слово "ПОСТАНОВИЛ" или "ПРОДЛЕВАЮ" - это резолюция, не документ
+- Продолжение текста без заголовка
+- Любой текст где нет чёткого заголовка документа
+
+Если is_start=true, укажи:
+- type: Постановление/Протокол/Заключение/Рапорт/Уведомление
+- title: полное название (например "Постановление о возбуждении уголовного дела")
+- date: дата в формате ДД.ММ.ГГГГ
+
+JSON: {"is_start": true/false, "type": "тип", "title": "название", "date": "ДД.ММ.ГГГГ"}"""
+                            }
+                        ]
+                    }]
+                )
+
+                content = response.content[0].text.strip()
+                print(f"[DEBUG] Page {page_num + 1} raw response: {content[:100]}")
+
+                # Убираем markdown
+                if content.startswith("```"):
+                    content = re.sub(r'^```json?\s*', '', content)
+                    content = re.sub(r'\s*```$', '', content)
+
+                # Ищем JSON в ответе
+                json_match = re.search(r'\{[^}]+\}', content)
+                if json_match:
+                    content = json_match.group(0)
+
+                result = json.loads(content)
+                return result
+
+            except Exception as e:
+                print(f"[DEBUG] Vision error page {page_num + 1}: {e}")
+                return {"is_start": False, "type": "Unknown", "title": ""}
+
+        documents = []
+        current_doc = None
+
+        # ТЕСТ: только первые 30 страниц
+        test_pages = min(30, total_pages)
+        print(f"[DEBUG] Testing on {test_pages} pages...")
+
+        for page_num in range(test_pages):
+            if page_num % 10 == 0:
+                print(f"[DEBUG] Processing page {page_num + 1}/{test_pages}")
+
+            page = doc.load_page(page_num)
+
+            # Анализируем через Vision
+            vision_result = analyze_page_with_vision(page, page_num)
+
+            if vision_result.get("is_start"):
+                # Закрываем предыдущий документ
+                if current_doc:
+                    current_doc["end_page"] = page_num
+                    documents.append(current_doc)
+
+                # Формируем полное название с датой
+                title = vision_result.get("title", "Документ")
+                doc_date = vision_result.get("date", "")
+                if doc_date and doc_date not in title:
+                    title = f"{title} от {doc_date}"
+
+                # Начинаем новый документ
+                current_doc = {
+                    "title": title,
+                    "type": vision_result.get("type", "Документ"),
+                    "start_page": page_num + 1,
+                    "end_page": page_num + 1,
+                    "date": doc_date
+                }
+                print(f"[DEBUG] FOUND: page {page_num + 1} - {vision_result.get('type')} - {title[:60]}")
+
+        # Последний документ
+        if current_doc:
+            current_doc["end_page"] = test_pages
+            documents.append(current_doc)
+
+        doc.close()
+
+        print(f"[DEBUG] Vision found {len(documents)} documents in {test_pages} pages")
+
+        # Формируем результат
+        validated_docs = []
+        for i, d in enumerate(documents):
+            end_page = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else test_pages
+            validated_docs.append({
+                "id": i + 1,
+                "title": d["title"][:150],
+                "doc_type": d["type"],
+                "page_start": d["start_page"],
+                "page_end": end_page
+            })
+
+        return {
+            "documents": validated_docs,
+            "total_pages": total_pages,
+            "analyzed_pages": test_pages,
+            "method": "claude_vision_test"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при анализе документа: {str(e)}"
+        )
 
 
 @router.post("/{case_id}/volumes/sync")
@@ -354,7 +620,7 @@ async def upload_volumes(
         )
 
     # Создаем директорию для загрузок
-    upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
     os.makedirs(upload_dir, exist_ok=True)
 
     uploaded_files = []
@@ -449,7 +715,7 @@ async def sync_gdrive_folder(
         import json
 
         # Создаем директорию для загрузок
-        upload_dir = f"/var/data/starec-advocat/uploads/case_{case_id}"
+        upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
         os.makedirs(upload_dir, exist_ok=True)
 
         downloaded_files = []

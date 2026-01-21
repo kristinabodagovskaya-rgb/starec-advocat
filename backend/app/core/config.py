@@ -29,8 +29,14 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "starec_pass"
     POSTGRES_DB: str = "starec_advocat"
 
+    # SQLite for local development
+    USE_SQLITE: bool = os.getenv("USE_SQLITE", "true").lower() == "true"
+    SQLITE_PATH: str = os.getenv("SQLITE_PATH", "./local_starec.db")
+
     @property
     def DATABASE_URL(self) -> str:
+        if self.USE_SQLITE:
+            return f"sqlite:///{self.SQLITE_PATH}"
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
     # MongoDB
@@ -64,8 +70,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
     # Файловое хранилище
-    UPLOAD_DIR: str = "/var/data/starec-advocat/uploads"
-    PROCESSED_DIR: str = "/var/data/starec-advocat/processed"
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
+    PROCESSED_DIR: str = os.getenv("PROCESSED_DIR", "./processed")
 
     # OCR настройки
     TESSERACT_CMD: str = "/usr/bin/tesseract"
