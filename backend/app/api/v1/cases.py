@@ -446,28 +446,48 @@ async def extract_documents_from_volume(
                             },
                             {
                                 "type": "text",
-                                "text": """Это страница из тома уголовного дела. Определи, начинается ли здесь НОВЫЙ ДОКУМЕНТ.
+                                "text": """Определи, начинается ли на этой странице НОВЫЙ ДОКУМЕНТ.
 
-is_start = true ТОЛЬКО если это РЕАЛЬНЫЙ ДОКУМЕНТ с заголовком:
-- "ПОСТАНОВЛЕНИЕ о..." (о возбуждении, о продлении, о привлечении...)
-- "ПРОТОКОЛ допроса/осмотра/обыска..."
-- "ЗАКЛЮЧЕНИЕ эксперта..."
-- "РАПОРТ об обнаружении..."
-- "УВЕДОМЛЕНИЕ о..."
+=== ШАБЛОН: КАК ВЫГЛЯДИТ НАЧАЛО ДОКУМЕНТА (is_start=true) ===
 
-ОБЯЗАТЕЛЬНО должна быть ДАТА документа на странице!
+┌────────────────────────────────────────┐
+│                                        │
+│            ПОСТАНОВЛЕНИЕ               │ ← КРУПНЫЙ заголовок
+│    о возбуждении уголовного дела       │ ← подзаголовок
+│    и принятии его к производству       │
+│                                        │
+│  г. Москва                 01.11.2011  │ ← ДАТА обязательна
+│                                        │
+│  Следователь... рассмотрев материалы   │
+└────────────────────────────────────────┘
 
-is_start = false (ЭТО НЕ ДОКУМЕНТ):
-- Титульный лист тома (Следственное управление, Том №, уголовное дело №)
-- ОПИСЬ/оглавление (таблица со списком "Копия постановления...", "Копия протокола...")
-- Слово "ПОСТАНОВИЛ" или "ПРОДЛЕВАЮ" - это резолюция, не документ
-- Продолжение текста без заголовка
-- Любой текст где нет чёткого заголовка документа
+Признаки: заголовок КРУПНО вверху страницы + дата
 
-Если is_start=true, укажи:
-- type: Постановление/Протокол/Заключение/Рапорт/Уведомление
-- title: полное название (например "Постановление о возбуждении уголовного дела")
-- date: дата в формате ДД.ММ.ГГГГ
+=== ШАБЛОН: ОПИСЬ/ТАБЛИЦА (is_start=false) ===
+
+┌────┬─────────────────────────┬────────┐
+│ №  │ Наименование документа  │ Листы  │
+├────┼─────────────────────────┼────────┤
+│ 1  │ Копия постановления о...│  1-5   │
+│ 2  │ Копия рапорта об...     │  6-7   │ ← это НЕ документ "Рапорт"!
+│ 3  │ Копия протокола...      │  8-10  │
+└────┴─────────────────────────┴────────┘
+
+ВНИМАНИЕ: слова "рапорт", "постановление" в ячейках таблицы - это СПИСОК документов, а НЕ сами документы!
+
+=== ШАБЛОН: ПРОДОЛЖЕНИЕ ДОКУМЕНТА (is_start=false) ===
+
+┌────────────────────────────────────────┐
+│  ...рассмотрев материалы проверки,     │ ← текст без заголовка
+│  установил следующее...                │
+│                                        │
+│           ПОСТАНОВИЛ:                  │ ← это резолюция, НЕ заголовок!
+│  1. Возбудить уголовное дело...        │
+└────────────────────────────────────────┘
+
+=== ПРАВИЛО ===
+is_start=true ТОЛЬКО если есть КРУПНЫЙ ЗАГОЛОВОК + ДАТА
+Типы документов: Постановление, Протокол, Рапорт, Уведомление, Заключение
 
 JSON: {"is_start": true/false, "type": "тип", "title": "название", "date": "ДД.ММ.ГГГГ"}"""
                             }
@@ -498,13 +518,14 @@ JSON: {"is_start": true/false, "type": "тип", "title": "название", "d
         documents = []
         current_doc = None
 
-        # ТЕСТ: только первые 30 страниц
-        test_pages = min(30, total_pages)
-        print(f"[DEBUG] Testing on {test_pages} pages...")
+        # ТЕСТ: со 175 страницы до конца файла
+        start_page = 175 - 1  # 0-indexed
+        end_page = total_pages
+        print(f"[DEBUG] Testing pages {start_page + 1}-{end_page} ({end_page - start_page} pages)...")
 
-        for page_num in range(test_pages):
+        for page_num in range(start_page, end_page):
             if page_num % 10 == 0:
-                print(f"[DEBUG] Processing page {page_num + 1}/{test_pages}")
+                print(f"[DEBUG] Processing page {page_num + 1}/{end_page}")
 
             page = doc.load_page(page_num)
 
@@ -535,29 +556,32 @@ JSON: {"is_start": true/false, "type": "тип", "title": "название", "d
 
         # Последний документ
         if current_doc:
-            current_doc["end_page"] = test_pages
+            current_doc["end_page"] = end_page
             documents.append(current_doc)
 
         doc.close()
 
-        print(f"[DEBUG] Vision found {len(documents)} documents in {test_pages} pages")
+        analyzed_pages = end_page - start_page
+        print(f"[DEBUG] Vision found {len(documents)} documents in {analyzed_pages} pages (pages {start_page + 1}-{end_page})")
 
         # Формируем результат
         validated_docs = []
         for i, d in enumerate(documents):
-            end_page = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else test_pages
+            doc_end_page = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else end_page
             validated_docs.append({
                 "id": i + 1,
                 "title": d["title"][:150],
                 "doc_type": d["type"],
                 "page_start": d["start_page"],
-                "page_end": end_page
+                "page_end": doc_end_page
             })
 
         return {
             "documents": validated_docs,
             "total_pages": total_pages,
-            "analyzed_pages": test_pages,
+            "analyzed_pages": analyzed_pages,
+            "start_page": start_page + 1,
+            "end_page": end_page,
             "method": "claude_vision_test"
         }
 
