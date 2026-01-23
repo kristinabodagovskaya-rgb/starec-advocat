@@ -512,10 +512,10 @@ async def extract_documents_from_volume(
         in_opis = False  # Флаг: сейчас внутри ОПИСИ
         opis_start_page = None
 
-        # ТЕСТ: со 175 страницы до конца файла
-        start_page = 175 - 1  # 0-indexed
+        # Весь документ: с 1 страницы до конца
+        start_page = 0
         end_page = total_pages
-        print(f"[DEBUG] Testing pages {start_page + 1}-{end_page} ({end_page - start_page} pages)...")
+        print(f"[DEBUG] Analyzing pages 1-{end_page} ({end_page} pages)...")
 
         for page_num in range(start_page, end_page):
             if page_num % 10 == 0:
