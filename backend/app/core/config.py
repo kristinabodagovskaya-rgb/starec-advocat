@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # SQLite for local development
     USE_SQLITE: bool = os.getenv("USE_SQLITE", "true").lower() == "true"
-    SQLITE_PATH: str = os.getenv("SQLITE_PATH", "./local_starec.db")
+    SQLITE_PATH: str = os.getenv("SQLITE_PATH", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "local_starec.db"))
 
     @property
     def DATABASE_URL(self) -> str:

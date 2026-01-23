@@ -405,12 +405,12 @@ async def extract_documents_from_volume(
 
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-        def get_page_top_image(page, crop_ratio=0.5):
-            """Получает картинку верхней части страницы (40%)"""
-            # Полный размер страницы
-            full_pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+        def get_page_image(page, crop_ratio=0.7):
+            """Получает картинку страницы (70% для экономии токенов)"""
+            # Уменьшенный масштаб для экономии (1.2 вместо 1.5)
+            full_pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
 
-            # Обрезаем до верхней части
+            # Обрезаем до нужной части
             height = full_pix.height
             crop_height = int(height * crop_ratio)
 
@@ -418,105 +418,99 @@ async def extract_documents_from_volume(
             img = Image.frombytes("RGB", [full_pix.width, full_pix.height], full_pix.samples)
             cropped = img.crop((0, 0, full_pix.width, crop_height))
 
-            # Конвертируем в base64
+            # Конвертируем в JPEG для меньшего размера
             buffer = io.BytesIO()
-            cropped.save(buffer, format="PNG", optimize=True)
+            cropped.save(buffer, format="JPEG", quality=85, optimize=True)
             img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
             return img_base64
 
-        def analyze_page_with_vision(page, page_num: int) -> dict:
-            """Анализирует верхнюю часть страницы через Claude Vision"""
+        # Системный промпт для анализа документов
+        system_prompt = """Ты анализируешь страницы уголовного дела. Твоя задача — определить границы документов.
+
+ВАЖНЫЕ ПРАВИЛА:
+
+1. ОПИСЬ/РЕЕСТР — это ТАБЛИЦА со списком документов:
+   | № | Наименование | Листы |
+   Названия в ячейках — это СПИСОК, НЕ сами документы!
+   Вся опись = ОДИН документ "Опись материалов дела"
+
+2. ДОКУМЕНТ начинается с:
+   - КРУПНОГО заголовка (ПОСТАНОВЛЕНИЕ, ПРОТОКОЛ, РАПОРТ)
+   - Даты рядом с заголовком
+   - Шапки организации
+
+3. ДОКУМЕНТ заканчивается:
+   - Подписью (_____ ФИО)
+   - Датой подписи
+   - Печатью
+
+4. ПОМНИ предыдущие страницы! Если была опись — она продолжается пока не появится новый документ.
+
+Отвечай ТОЛЬКО JSON."""
+
+        # История диалога для сохранения контекста
+        conversation_history = []
+
+        def analyze_page_with_context(page, page_num: int, history: list) -> dict:
+            """Анализирует страницу с учётом истории предыдущих страниц"""
             try:
-                img_base64 = get_page_top_image(page, crop_ratio=0.5)
+                img_base64 = get_page_image(page, crop_ratio=0.7)
+
+                # Добавляем новую страницу в историю
+                history.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": img_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": f"Страница {page_num + 1}. Что это? JSON: {{is_start, is_end, is_opis, type, title, date}}"
+                        }
+                    ]
+                })
 
                 response = client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=400,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/png",
-                                    "data": img_base64
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": """Определи, начинается ли на этой странице НОВЫЙ ДОКУМЕНТ.
-
-=== ШАБЛОН: КАК ВЫГЛЯДИТ НАЧАЛО ДОКУМЕНТА (is_start=true) ===
-
-┌────────────────────────────────────────┐
-│                                        │
-│            ПОСТАНОВЛЕНИЕ               │ ← КРУПНЫЙ заголовок
-│    о возбуждении уголовного дела       │ ← подзаголовок
-│    и принятии его к производству       │
-│                                        │
-│  г. Москва                 01.11.2011  │ ← ДАТА обязательна
-│                                        │
-│  Следователь... рассмотрев материалы   │
-└────────────────────────────────────────┘
-
-Признаки: заголовок КРУПНО вверху страницы + дата
-
-=== ШАБЛОН: ОПИСЬ/ТАБЛИЦА (is_start=false) ===
-
-┌────┬─────────────────────────┬────────┐
-│ №  │ Наименование документа  │ Листы  │
-├────┼─────────────────────────┼────────┤
-│ 1  │ Копия постановления о...│  1-5   │
-│ 2  │ Копия рапорта об...     │  6-7   │ ← это НЕ документ "Рапорт"!
-│ 3  │ Копия протокола...      │  8-10  │
-└────┴─────────────────────────┴────────┘
-
-ВНИМАНИЕ: слова "рапорт", "постановление" в ячейках таблицы - это СПИСОК документов, а НЕ сами документы!
-
-=== ШАБЛОН: ПРОДОЛЖЕНИЕ ДОКУМЕНТА (is_start=false) ===
-
-┌────────────────────────────────────────┐
-│  ...рассмотрев материалы проверки,     │ ← текст без заголовка
-│  установил следующее...                │
-│                                        │
-│           ПОСТАНОВИЛ:                  │ ← это резолюция, НЕ заголовок!
-│  1. Возбудить уголовное дело...        │
-└────────────────────────────────────────┘
-
-=== ПРАВИЛО ===
-is_start=true ТОЛЬКО если есть КРУПНЫЙ ЗАГОЛОВОК + ДАТА
-Типы документов: Постановление, Протокол, Рапорт, Уведомление, Заключение
-
-JSON: {"is_start": true/false, "type": "тип", "title": "название", "date": "ДД.ММ.ГГГГ"}"""
-                            }
-                        ]
-                    }]
+                    max_tokens=300,
+                    system=system_prompt,
+                    messages=history[-10:]  # Последние 10 сообщений для контекста (5 страниц)
                 )
 
                 content = response.content[0].text.strip()
-                print(f"[DEBUG] Page {page_num + 1} raw response: {content[:100]}")
+                print(f"[DEBUG] Page {page_num + 1}: {content[:80]}")
 
-                # Убираем markdown
+                # Добавляем ответ в историю
+                history.append({
+                    "role": "assistant",
+                    "content": content
+                })
+
+                # Парсим JSON
                 if content.startswith("```"):
                     content = re.sub(r'^```json?\s*', '', content)
                     content = re.sub(r'\s*```$', '', content)
 
-                # Ищем JSON в ответе
                 json_match = re.search(r'\{[^}]+\}', content)
                 if json_match:
                     content = json_match.group(0)
 
-                result = json.loads(content)
-                return result
+                return json.loads(content)
 
             except Exception as e:
-                print(f"[DEBUG] Vision error page {page_num + 1}: {e}")
-                return {"is_start": False, "type": "Unknown", "title": ""}
+                print(f"[DEBUG] Error page {page_num + 1}: {e}")
+                return {"is_start": False, "is_opis": False, "type": "Unknown", "title": ""}
 
         documents = []
         current_doc = None
+        in_opis = False  # Флаг: сейчас внутри ОПИСИ
+        opis_start_page = None
 
         # ТЕСТ: со 175 страницы до конца файла
         start_page = 175 - 1  # 0-indexed
@@ -529,30 +523,88 @@ JSON: {"is_start": true/false, "type": "тип", "title": "название", "d
 
             page = doc.load_page(page_num)
 
-            # Анализируем через Vision
-            vision_result = analyze_page_with_vision(page, page_num)
+            # Анализируем с сохранением контекста диалога
+            vision_result = analyze_page_with_context(page, page_num, conversation_history)
 
-            if vision_result.get("is_start"):
+            # Проверяем: это ОПИСЬ?
+            if vision_result.get("is_opis"):
+                if not in_opis:
+                    # Начало ОПИСИ - закрываем предыдущий документ
+                    if current_doc:
+                        current_doc["end_page"] = page_num
+                        documents.append(current_doc)
+                        current_doc = None
+
+                    # Начинаем ОПИСЬ как один документ
+                    in_opis = True
+                    opis_start_page = page_num + 1
+                    print(f"[DEBUG] ОПИСЬ НАЧАЛАСЬ: стр.{page_num + 1}")
+                else:
+                    # Продолжение ОПИСИ
+                    print(f"[DEBUG] ОПИСЬ продолжается: стр.{page_num + 1}")
+                continue  # Не обрабатываем содержимое описи как документы!
+
+            # Если в ОПИСИ - проверяем ТОЛЬКО начало реального документа
+            if in_opis:
+                # Закрываем ОПИСЬ только если началcя РЕАЛЬНЫЙ документ (is_start=true, is_opis=false)
+                if vision_result.get("is_start") and not vision_result.get("is_opis"):
+                    # Закрываем ОПИСЬ
+                    documents.append({
+                        "title": "Опись материалов уголовного дела",
+                        "type": "Опись",
+                        "start_page": opis_start_page,
+                        "end_page": page_num,  # Предыдущая страница
+                        "date": ""
+                    })
+                    in_opis = False
+                    print(f"[DEBUG] ОПИСЬ ЗАКОНЧИЛАСЬ: стр.{opis_start_page}-{page_num}")
+                    # Продолжаем обработку этой страницы как начало документа (не continue!)
+                else:
+                    # Страница не опознана, но мы в описи — считаем продолжением описи
+                    print(f"[DEBUG] ОПИСЬ (неявно): стр.{page_num + 1}")
+                    continue
+
+            # Проверяем конец документа
+            if vision_result.get("is_end") and current_doc:
+                current_doc["end_page"] = page_num + 1
+                print(f"[DEBUG] END: стр.{page_num + 1} - конец «{current_doc['title'][:40]}»")
+
+            # Проверяем начало нового документа
+            if vision_result.get("is_start") and not vision_result.get("is_opis"):
                 # Закрываем предыдущий документ
                 if current_doc:
-                    current_doc["end_page"] = page_num
+                    if current_doc["end_page"] < page_num:
+                        current_doc["end_page"] = page_num
                     documents.append(current_doc)
 
-                # Формируем полное название с датой
-                title = vision_result.get("title", "Документ")
+                # Получаем название и делаем первую букву заглавной
+                title = vision_result.get("title", "Документ").strip()
+                if title:
+                    title = title[0].upper() + title[1:] if len(title) > 1 else title.upper()
+
                 doc_date = vision_result.get("date", "")
-                if doc_date and doc_date not in title:
-                    title = f"{title} от {doc_date}"
+                doc_type = vision_result.get("type", "Документ")
 
                 # Начинаем новый документ
                 current_doc = {
                     "title": title,
-                    "type": vision_result.get("type", "Документ"),
+                    "type": doc_type,
                     "start_page": page_num + 1,
                     "end_page": page_num + 1,
                     "date": doc_date
                 }
-                print(f"[DEBUG] FOUND: page {page_num + 1} - {vision_result.get('type')} - {title[:60]}")
+                print(f"[DEBUG] START: стр.{page_num + 1} - {doc_type} - «{title[:50]}» {doc_date}")
+
+        # Закрываем незавершённую ОПИСЬ
+        if in_opis:
+            documents.append({
+                "title": "Опись материалов уголовного дела",
+                "type": "Опись",
+                "start_page": opis_start_page,
+                "end_page": end_page,
+                "date": ""
+            })
+            print(f"[DEBUG] ОПИСЬ ЗАКОНЧИЛАСЬ (конец файла): стр.{opis_start_page}-{end_page}")
 
         # Последний документ
         if current_doc:
@@ -570,10 +622,11 @@ JSON: {"is_start": true/false, "type": "тип", "title": "название", "d
             doc_end_page = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else end_page
             validated_docs.append({
                 "id": i + 1,
-                "title": d["title"][:150],
+                "title": d["title"],
                 "doc_type": d["type"],
                 "page_start": d["start_page"],
-                "page_end": doc_end_page
+                "page_end": doc_end_page,
+                "date": d.get("date", "")  # Добавляем дату!
             })
 
         return {

@@ -173,9 +173,9 @@ export default function PDFViewerPage() {
 
         {/* Sidebar with extracted documents - RIGHT SIDE */}
         {showSidebar && extractedDocs.length > 0 && (
-          <div className="w-80 bg-white border-l border-gray-200 overflow-y-auto">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="font-semibold text-[#1d1d1f]">
+          <div className="w-[500px] bg-white border-l border-gray-200 overflow-y-auto flex-shrink-0">
+            <div className="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+              <h3 className="font-semibold text-[#1d1d1f] text-lg">
                 Документы ({extractedDocs.length})
               </h3>
               <p className="text-sm text-[#6e6e73] mt-1">
@@ -193,25 +193,28 @@ export default function PDFViewerPage() {
                       : 'hover:bg-gray-50'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-[#1d1d1f] text-sm truncate">
-                        {index + 1}. {doc.title}
-                      </p>
-                      {doc.doc_type && (
-                        <p className="text-xs text-[#6e6e73] mt-1">
-                          {doc.doc_type}
-                        </p>
-                      )}
+                  <div className="flex flex-col gap-2">
+                    {/* Название документа - полностью видно */}
+                    <p className="font-medium text-[#1d1d1f] text-sm leading-relaxed">
+                      {index + 1}. {doc.title}
+                    </p>
+
+                    {/* Дата и тип в одной строке */}
+                    <div className="flex items-center flex-wrap gap-2 text-xs">
                       {doc.date && (
-                        <p className="text-xs text-[#86868b] mt-1">
+                        <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded font-medium">
                           {doc.date}
-                        </p>
+                        </span>
                       )}
+                      {doc.doc_type && (
+                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded">
+                          {doc.doc_type}
+                        </span>
+                      )}
+                      <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded ml-auto">
+                        стр. {doc.page_start}{doc.page_end !== doc.page_start ? `–${doc.page_end}` : ''}
+                      </span>
                     </div>
-                    <span className="ml-2 px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-lg whitespace-nowrap">
-                      стр. {doc.page_start}{doc.page_end !== doc.page_start ? `-${doc.page_end}` : ''}
-                    </span>
                   </div>
                 </button>
               ))}
