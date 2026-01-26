@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 
 interface ExtractedDocument {
@@ -15,45 +15,80 @@ export default function PDFViewerPage() {
   const navigate = useNavigate()
 
   const [isExtracting, setIsExtracting] = useState(false)
+  const [extractionProgress, setExtractionProgress] = useState(0)
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([])
   const [showSidebar, setShowSidebar] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const pdfUrl = `/api/cases/${id}/volumes/${volumeId}/file`
+
+  // Загружаем сохранённые документы при открытии
+  useEffect(() => {
+    const loadSavedDocuments = async () => {
+      try {
+        const response = await fetch(`/api/cases/${id}/volumes/${volumeId}/documents`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.documents && data.documents.length > 0) {
+            setExtractedDocs(data.documents)
+            setShowSidebar(true)
+            console.log('Loaded saved documents:', data.documents.length)
+          }
+        }
+      } catch (err) {
+        console.error('Error loading saved documents:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadSavedDocuments()
+  }, [id, volumeId])
 
   const handleExtractDocuments = async () => {
     console.log('Starting extraction for case', id, 'volume', volumeId)
     setIsExtracting(true)
+    setExtractionProgress(0)
     setError(null)
 
     try {
-      const url = `/api/cases/${id}/volumes/${volumeId}/extract-documents`
-      console.log('Calling API:', url)
+      const url = `/api/cases/${id}/volumes/${volumeId}/extract-documents-stream`
+      console.log('Calling SSE API:', url)
 
-      const response = await fetch(url, {
-        method: 'POST',
-      })
+      const eventSource = new EventSource(url)
 
-      console.log('Response status:', response.status)
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+        console.log('SSE event:', data)
 
-      if (response.ok) {
-        const data = await response.json()
-        console.log('Extracted documents:', data)
-        setExtractedDocs(data.documents || [])
-        setShowSidebar(true)
-        if (data.documents?.length === 0) {
-          setError('Документы не найдены. Попробуйте открыть ОПИСЬ вручную.')
+        if (data.type === 'progress') {
+          setExtractionProgress(data.progress)
+        } else if (data.type === 'complete') {
+          setExtractedDocs(data.documents || [])
+          setShowSidebar(true)
+          setIsExtracting(false)
+          eventSource.close()
+          if (data.documents?.length === 0) {
+            setError('Документы не найдены. Попробуйте открыть ОПИСЬ вручную.')
+          }
+        } else if (data.type === 'error') {
+          setError(data.message || 'Ошибка при извлечении документов')
+          setIsExtracting(false)
+          eventSource.close()
         }
-      } else {
-        const errorData = await response.json()
-        console.error('API error:', errorData)
-        setError(errorData.detail || 'Ошибка при извлечении документов')
       }
+
+      eventSource.onerror = (err) => {
+        console.error('SSE error:', err)
+        setError('Ошибка подключения к серверу')
+        setIsExtracting(false)
+        eventSource.close()
+      }
+
     } catch (err) {
       console.error('Extract error:', err)
       setError('Ошибка подключения к серверу: ' + String(err))
-    } finally {
       setIsExtracting(false)
     }
   }
@@ -69,7 +104,7 @@ export default function PDFViewerPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
       <header className="apple-header sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -89,22 +124,22 @@ export default function PDFViewerPage() {
               <button
                 onClick={handleExtractDocuments}
                 disabled={isExtracting}
-                className="apple-btn-primary flex items-center"
+                className={`flex items-center ${extractedDocs.length > 0 ? 'apple-btn-secondary' : 'apple-btn-primary'}`}
               >
                 {isExtracting ? (
                   <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Анализ...
+                    Анализ... {extractionProgress > 0 && `${extractionProgress}%`}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    Выделить документы
+                    {extractedDocs.length > 0 ? 'Выделить заново' : 'Выделить документы'}
                   </>
                 )}
               </button>
@@ -122,17 +157,6 @@ export default function PDFViewerPage() {
                 </button>
               )}
 
-              {/* Download Button */}
-              <a
-                href={pdfUrl}
-                download
-                className="apple-btn-secondary flex items-center"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Скачать
-              </a>
             </div>
           </div>
         </div>
@@ -159,22 +183,42 @@ export default function PDFViewerPage() {
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 flex">
-        {/* PDF Viewer */}
-        <div className="flex-1 bg-[#525659]">
+      {/* Прогресс-бар при выделении */}
+      {isExtracting && (
+        <div className="bg-blue-50 border-b border-blue-200 px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-blue-700">
+              Анализ документов: {extractionProgress}%
+            </span>
+            <span className="text-xs text-blue-500">
+              Пожалуйста, подождите...
+            </span>
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-3">
+            <div
+              className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${extractionProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main Content - независимый скроллинг колонок */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* PDF Viewer - свой скролл внутри iframe */}
+        <div className="flex-1 bg-[#525659] overflow-hidden">
           <iframe
             id="pdf-viewer"
             src={pdfUrl}
-            className="w-full h-full min-h-[calc(100vh-80px)]"
+            className="w-full h-full"
             title="PDF Viewer"
           />
         </div>
 
-        {/* Sidebar with extracted documents - RIGHT SIDE */}
+        {/* Sidebar with extracted documents - независимый скролл */}
         {showSidebar && extractedDocs.length > 0 && (
-          <div className="w-[500px] bg-white border-l border-gray-200 overflow-y-auto flex-shrink-0">
-            <div className="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <div className="w-[500px] bg-white border-l border-gray-200 flex flex-col flex-shrink-0 h-full">
+            <div className="p-4 border-b border-gray-200 bg-white flex-shrink-0">
               <h3 className="font-semibold text-[#1d1d1f] text-lg">
                 Документы ({extractedDocs.length})
               </h3>
@@ -182,7 +226,7 @@ export default function PDFViewerPage() {
                 Нажмите для перехода к странице
               </p>
             </div>
-            <div className="divide-y divide-gray-100">
+            <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-100">
               {extractedDocs.map((doc, index) => (
                 <button
                   key={doc.id || index}

@@ -62,6 +62,36 @@ class Volume(Base):
     # Связи
     case = relationship("Case", back_populates="volumes")
     documents = relationship("Document", back_populates="volume", cascade="all, delete-orphan")
+    extraction_runs = relationship("ExtractionRun", back_populates="volume", cascade="all, delete-orphan")
+
+
+class ExtractionRun(Base):
+    """История выделений документов (версии)"""
+    __tablename__ = "extraction_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+
+    # Версия (1, 2, 3...)
+    version = Column(Integer, nullable=False, default=1)
+
+    # Статистика
+    documents_count = Column(Integer, default=0)
+    total_pages = Column(Integer, default=0)
+
+    # Настройки при выделении
+    crop_ratio = Column(String(10), default="0.9")
+    model_used = Column(String(100), default="claude-sonnet-4-20250514")
+
+    # Активная версия?
+    is_current = Column(Integer, default=1)  # 1 = текущая, 0 = архивная
+
+    # Метаданные
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    volume = relationship("Volume", back_populates="extraction_runs")
+    documents = relationship("Document", back_populates="extraction_run", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -70,6 +100,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     case_id = Column(Integer, ForeignKey("cases.id"), nullable=False)
     volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+    extraction_run_id = Column(Integer, ForeignKey("extraction_runs.id"), nullable=True)
 
     # Информация о документе
     doc_type = Column(String(100))  # протокол, постановление, заключение и т.д.
@@ -95,5 +126,6 @@ class Document(Base):
     # Связи
     case = relationship("Case", back_populates="documents")
     volume = relationship("Volume", back_populates="documents")
+    extraction_run = relationship("ExtractionRun", back_populates="documents")
     entities = relationship("Entity", back_populates="document", cascade="all, delete-orphan")
     analyses = relationship("DocumentAnalysis", back_populates="document", cascade="all, delete-orphan")

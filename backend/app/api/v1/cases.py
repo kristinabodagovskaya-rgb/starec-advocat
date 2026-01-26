@@ -3,7 +3,7 @@ API для работы с делами
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ import re
 import json
 import base64
 
-from app.models import get_db, Case, Volume
+from app.models import get_db, Case, Volume, Document, ExtractionRun
 from app.core.config import settings
 
 # Для работы с PDF и Claude API
@@ -405,8 +405,8 @@ async def extract_documents_from_volume(
 
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-        def get_page_image(page, crop_ratio=0.7):
-            """Получает картинку страницы (70% для экономии токенов)"""
+        def get_page_image(page, crop_ratio=0.9):
+            """Получает картинку страницы (90% чтобы видеть подписи внизу)"""
             # Уменьшенный масштаб для экономии (1.2 вместо 1.5)
             full_pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
 
@@ -418,36 +418,30 @@ async def extract_documents_from_volume(
             img = Image.frombytes("RGB", [full_pix.width, full_pix.height], full_pix.samples)
             cropped = img.crop((0, 0, full_pix.width, crop_height))
 
-            # Конвертируем в JPEG для меньшего размера
+            # Конвертируем в JPEG (quality=80 для компенсации увеличенного размера)
             buffer = io.BytesIO()
-            cropped.save(buffer, format="JPEG", quality=85, optimize=True)
+            cropped.save(buffer, format="JPEG", quality=80, optimize=True)
             img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
             return img_base64
 
-        # Системный промпт для анализа документов
-        system_prompt = """Ты анализируешь страницы уголовного дела. Твоя задача — определить границы документов.
+        # Системный промпт для анализа документов (сжатый)
+        system_prompt = """Анализ страниц уголовного дела. Определи границы документов.
 
-ВАЖНЫЕ ПРАВИЛА:
+ПРАВИЛА:
+1. ОПИСЬ = таблица |№|Наименование|Листы| — это ОДИН документ, не список отдельных!
 
-1. ОПИСЬ/РЕЕСТР — это ТАБЛИЦА со списком документов:
-   | № | Наименование | Листы |
-   Названия в ячейках — это СПИСОК, НЕ сами документы!
-   Вся опись = ОДИН документ "Опись материалов дела"
+2. НАЧАЛО документа (is_start=true): заголовок вверху (ПОСТАНОВЛЕНИЕ/ПРОТОКОЛ/РАПОРТ) ИЛИ шапка организации ИЛИ номер/дата исх.
 
-2. ДОКУМЕНТ начинается с:
-   - КРУПНОГО заголовка (ПОСТАНОВЛЕНИЕ, ПРОТОКОЛ, РАПОРТ)
-   - Даты рядом с заголовком
-   - Шапки организации
+3. ПРОДОЛЖЕНИЕ (is_start=false): нет заголовка/шапки вверху, только текст/таблицы/подписи.
 
-3. ДОКУМЕНТ заканчивается:
-   - Подписью (_____ ФИО)
-   - Датой подписи
-   - Печатью
+4. ДАТА: только из заголовка или подписи! НЕ из текста. Неразборчивая/рукописная → date=""
 
-4. ПОМНИ предыдущие страницы! Если была опись — она продолжается пока не появится новый документ.
+5. ФАМИЛИИ: мужское имя рядом → муж.фамилия (-ов/-ин), женское → жен. (-ова/-ина)
 
-Отвечай ТОЛЬКО JSON."""
+6. Помни контекст: опись продолжается пока нет нового заголовка.
+
+JSON: {is_start, is_end, is_opis, type, title, date}"""
 
         # История диалога для сохранения контекста
         conversation_history = []
@@ -455,7 +449,7 @@ async def extract_documents_from_volume(
         def analyze_page_with_context(page, page_num: int, history: list) -> dict:
             """Анализирует страницу с учётом истории предыдущих страниц"""
             try:
-                img_base64 = get_page_image(page, crop_ratio=0.7)
+                img_base64 = get_page_image(page, crop_ratio=0.9)
 
                 # Добавляем новую страницу в историю
                 history.append({
@@ -471,7 +465,7 @@ async def extract_documents_from_volume(
                         },
                         {
                             "type": "text",
-                            "text": f"Страница {page_num + 1}. Что это? JSON: {{is_start, is_end, is_opis, type, title, date}}"
+                            "text": f"Страница {page_num + 1}. Это НАЧАЛО нового документа (есть заголовок вверху)? JSON: {{is_start, is_end, is_opis, type, title, date}}"
                         }
                     ]
                 })
@@ -616,18 +610,39 @@ async def extract_documents_from_volume(
         analyzed_pages = end_page - start_page
         print(f"[DEBUG] Vision found {len(documents)} documents in {analyzed_pages} pages (pages {start_page + 1}-{end_page})")
 
-        # Формируем результат
+        # Удаляем старые документы этого тома
+        db.query(Document).filter(Document.volume_id == volume_id).delete()
+        db.commit()
+
+        # Сохраняем документы в БД
         validated_docs = []
         for i, d in enumerate(documents):
             doc_end_page = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else end_page
+
+            # Создаём запись в БД
+            db_doc = Document(
+                case_id=case_id,
+                volume_id=volume_id,
+                doc_type=d["type"],
+                title=d["title"],
+                start_page=d["start_page"],
+                end_page=doc_end_page,
+                document_date=None,  # TODO: парсить дату
+            )
+            db.add(db_doc)
+            db.flush()  # Получаем ID
+
             validated_docs.append({
-                "id": i + 1,
+                "id": db_doc.id,
                 "title": d["title"],
                 "doc_type": d["type"],
                 "page_start": d["start_page"],
                 "page_end": doc_end_page,
-                "date": d.get("date", "")  # Добавляем дату!
+                "date": d.get("date", "")
             })
+
+        db.commit()
+        print(f"[DEBUG] Saved {len(validated_docs)} documents to database")
 
         return {
             "documents": validated_docs,
@@ -635,7 +650,8 @@ async def extract_documents_from_volume(
             "analyzed_pages": analyzed_pages,
             "start_page": start_page + 1,
             "end_page": end_page,
-            "method": "claude_vision_test"
+            "method": "claude_vision",
+            "saved_to_db": True
         }
 
     except Exception as e:
@@ -643,6 +659,340 @@ async def extract_documents_from_volume(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при анализе документа: {str(e)}"
         )
+
+
+@router.get("/{case_id}/volumes/{volume_id}/documents")
+async def get_volume_documents(
+    case_id: int,
+    volume_id: int,
+    version: int = None,
+    db: Session = Depends(get_db)
+):
+    """Получить сохранённые документы тома (текущая версия или указанная)"""
+
+    # Проверяем том
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Находим нужный ExtractionRun
+    if version:
+        extraction_run = db.query(ExtractionRun).filter(
+            ExtractionRun.volume_id == volume_id,
+            ExtractionRun.version == version
+        ).first()
+    else:
+        extraction_run = db.query(ExtractionRun).filter(
+            ExtractionRun.volume_id == volume_id,
+            ExtractionRun.is_current == 1
+        ).first()
+
+    if not extraction_run:
+        # Возвращаем старые документы без версии (обратная совместимость)
+        documents = db.query(Document).filter(
+            Document.volume_id == volume_id,
+            Document.extraction_run_id == None
+        ).order_by(Document.start_page).all()
+    else:
+        documents = db.query(Document).filter(
+            Document.extraction_run_id == extraction_run.id
+        ).order_by(Document.start_page).all()
+
+    return {
+        "documents": [
+            {
+                "id": doc.id,
+                "title": doc.title,
+                "doc_type": doc.doc_type,
+                "page_start": doc.start_page,
+                "page_end": doc.end_page,
+                "date": doc.document_date.strftime("%d.%m.%Y") if doc.document_date else ""
+            }
+            for doc in documents
+        ],
+        "total": len(documents),
+        "version": extraction_run.version if extraction_run else None,
+        "created_at": extraction_run.created_at.isoformat() if extraction_run else None
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/extraction-history")
+async def get_extraction_history(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить историю всех выделений тома"""
+
+    runs = db.query(ExtractionRun).filter(
+        ExtractionRun.volume_id == volume_id
+    ).order_by(ExtractionRun.version.desc()).all()
+
+    return {
+        "versions": [
+            {
+                "version": run.version,
+                "documents_count": run.documents_count,
+                "total_pages": run.total_pages,
+                "crop_ratio": run.crop_ratio,
+                "model_used": run.model_used,
+                "is_current": run.is_current == 1,
+                "created_at": run.created_at.isoformat() if run.created_at else None
+            }
+            for run in runs
+        ],
+        "total_versions": len(runs)
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/extract-documents-stream")
+async def extract_documents_stream(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    SSE endpoint для извлечения документов с прогрессом.
+    Отправляет события: progress (0-100%), complete (документы), error
+    """
+
+    async def generate():
+        try:
+            if not HAS_PYMUPDF or not HAS_ANTHROPIC:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Библиотеки не установлены'})}\n\n"
+                return
+
+            if not settings.ANTHROPIC_API_KEY:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'ANTHROPIC_API_KEY не настроен'})}\n\n"
+                return
+
+            # Получаем том
+            volume = db.query(Volume).filter(
+                Volume.id == volume_id,
+                Volume.case_id == case_id
+            ).first()
+
+            if not volume:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Том не найден'})}\n\n"
+                return
+
+            upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+            file_path = os.path.join(upload_dir, volume.file_name)
+
+            if not os.path.exists(file_path):
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Файл не найден'})}\n\n"
+                return
+
+            # Открываем PDF
+            doc = fitz.open(file_path)
+            total_pages = len(doc)
+
+            yield f"data: {json.dumps({'type': 'progress', 'progress': 1, 'message': f'Открыт PDF: {total_pages} страниц'})}\n\n"
+
+            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+            def get_page_image(page, crop_ratio=0.9):
+                full_pix = page.get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
+                height = full_pix.height
+                crop_height = int(height * crop_ratio)
+                img = Image.frombytes("RGB", [full_pix.width, full_pix.height], full_pix.samples)
+                cropped = img.crop((0, 0, full_pix.width, crop_height))
+                buffer = io.BytesIO()
+                cropped.save(buffer, format="JPEG", quality=80, optimize=True)
+                return base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+            # Сжатый системный промпт
+            system_prompt = """Анализ страниц уголовного дела. Определи границы документов.
+
+ПРАВИЛА:
+1. ОПИСЬ = таблица |№|Наименование|Листы| — это ОДИН документ, не список отдельных!
+
+2. НАЧАЛО документа (is_start=true): заголовок вверху (ПОСТАНОВЛЕНИЕ/ПРОТОКОЛ/РАПОРТ) ИЛИ шапка организации ИЛИ номер/дата исх.
+
+3. ПРОДОЛЖЕНИЕ (is_start=false): нет заголовка/шапки вверху, только текст/таблицы/подписи.
+
+4. ДАТА: только из заголовка или подписи! НЕ из текста. Неразборчивая/рукописная → date=""
+
+5. ФАМИЛИИ: мужское имя рядом → муж.фамилия (-ов/-ин), женское → жен. (-ова/-ина)
+
+6. Помни контекст: опись продолжается пока нет нового заголовка.
+
+JSON: {is_start, is_end, is_opis, type, title, date}"""
+
+            conversation_history = []
+
+            def analyze_page(page, page_num: int, history: list) -> dict:
+                try:
+                    img_base64 = get_page_image(page, crop_ratio=0.9)
+                    history.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}},
+                            {"type": "text", "text": f"Страница {page_num + 1}. Это НАЧАЛО нового документа (есть заголовок вверху)? JSON: {{is_start, is_end, is_opis, type, title, date}}"}
+                        ]
+                    })
+                    response = client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=300,
+                        system=system_prompt,
+                        messages=history[-10:]
+                    )
+                    content = response.content[0].text.strip()
+                    history.append({"role": "assistant", "content": content})
+
+                    if content.startswith("```"):
+                        content = re.sub(r'^```json?\s*', '', content)
+                        content = re.sub(r'\s*```$', '', content)
+                    json_match = re.search(r'\{[^}]+\}', content)
+                    if json_match:
+                        content = json_match.group(0)
+                    return json.loads(content)
+                except Exception as e:
+                    print(f"[SSE] Error page {page_num + 1}: {e}")
+                    return {"is_start": False, "is_opis": False, "type": "Unknown", "title": ""}
+
+            documents = []
+            current_doc = None
+            in_opis = False
+            opis_start_page = None
+
+            for page_num in range(total_pages):
+                # Отправляем прогресс
+                progress = int((page_num + 1) / total_pages * 100)
+                yield f"data: {json.dumps({'type': 'progress', 'progress': progress, 'page': page_num + 1, 'total': total_pages})}\n\n"
+
+                page = doc.load_page(page_num)
+                result = analyze_page(page, page_num, conversation_history)
+
+                # Обработка ОПИСИ
+                if result.get("is_opis"):
+                    if not in_opis:
+                        if current_doc:
+                            current_doc["end_page"] = page_num
+                            documents.append(current_doc)
+                            current_doc = None
+                        in_opis = True
+                        opis_start_page = page_num + 1
+                    continue
+
+                if in_opis:
+                    if result.get("is_start") and not result.get("is_opis"):
+                        documents.append({
+                            "title": "Опись материалов уголовного дела",
+                            "type": "Опись",
+                            "start_page": opis_start_page,
+                            "end_page": page_num,
+                            "date": ""
+                        })
+                        in_opis = False
+                    else:
+                        continue
+
+                if result.get("is_end") and current_doc:
+                    current_doc["end_page"] = page_num + 1
+
+                if result.get("is_start") and not result.get("is_opis"):
+                    if current_doc:
+                        if current_doc["end_page"] < page_num:
+                            current_doc["end_page"] = page_num
+                        documents.append(current_doc)
+
+                    title = result.get("title", "Документ").strip()
+                    if title:
+                        title = title[0].upper() + title[1:] if len(title) > 1 else title.upper()
+
+                    current_doc = {
+                        "title": title,
+                        "type": result.get("type", "Документ"),
+                        "start_page": page_num + 1,
+                        "end_page": page_num + 1,
+                        "date": result.get("date", "")
+                    }
+
+            # Закрываем незавершённые
+            if in_opis:
+                documents.append({
+                    "title": "Опись материалов уголовного дела",
+                    "type": "Опись",
+                    "start_page": opis_start_page,
+                    "end_page": total_pages,
+                    "date": ""
+                })
+            if current_doc:
+                current_doc["end_page"] = total_pages
+                documents.append(current_doc)
+
+            doc.close()
+
+            # Сохраняем в БД с версионированием
+            # Помечаем старые выделения как неактивные
+            db.query(ExtractionRun).filter(
+                ExtractionRun.volume_id == volume_id,
+                ExtractionRun.is_current == 1
+            ).update({"is_current": 0})
+
+            # Определяем номер версии
+            last_run = db.query(ExtractionRun).filter(
+                ExtractionRun.volume_id == volume_id
+            ).order_by(ExtractionRun.version.desc()).first()
+            new_version = (last_run.version + 1) if last_run else 1
+
+            # Создаём новый ExtractionRun
+            extraction_run = ExtractionRun(
+                volume_id=volume_id,
+                version=new_version,
+                documents_count=len(documents),
+                total_pages=total_pages,
+                crop_ratio="0.9",
+                model_used="claude-sonnet-4-20250514",
+                is_current=1
+            )
+            db.add(extraction_run)
+            db.flush()
+
+            validated_docs = []
+            for i, d in enumerate(documents):
+                doc_end = documents[i + 1]["start_page"] - 1 if i + 1 < len(documents) else total_pages
+                db_doc = Document(
+                    case_id=case_id,
+                    volume_id=volume_id,
+                    extraction_run_id=extraction_run.id,
+                    doc_type=d["type"],
+                    title=d["title"],
+                    start_page=d["start_page"],
+                    end_page=doc_end,
+                )
+                db.add(db_doc)
+                db.flush()
+                validated_docs.append({
+                    "id": db_doc.id,
+                    "title": d["title"],
+                    "doc_type": d["type"],
+                    "page_start": d["start_page"],
+                    "page_end": doc_end,
+                    "date": d.get("date", "")
+                })
+
+            db.commit()
+
+            yield f"data: {json.dumps({'type': 'complete', 'documents': validated_docs, 'total_pages': total_pages, 'version': new_version})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @router.post("/{case_id}/volumes/sync")
