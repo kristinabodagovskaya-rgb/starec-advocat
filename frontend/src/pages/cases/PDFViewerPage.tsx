@@ -20,12 +20,13 @@ export default function PDFViewerPage() {
   const [showSidebar, setShowSidebar] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [_isLoading, setIsLoading] = useState(true)
 
   // OCR состояния
   const [isOcrRunning, setIsOcrRunning] = useState(false)
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrStatus, setOcrStatus] = useState<string | null>(null)
+  const [ocrEngine, setOcrEngine] = useState<'tesseract' | 'claude'>('tesseract')
   const [allPagesText, setAllPagesText] = useState<{page_number: number, text: string, confidence: number, word_boxes?: {text: string, x: number, y: number, width: number, height: number, conf: number}[]}[]>([])
   const [showOcrText, setShowOcrText] = useState(false)
   const [isLoadingText, setIsLoadingText] = useState(false)
@@ -130,26 +131,30 @@ export default function PDFViewerPage() {
   }, [ocrCurrentPage, allPagesText.length])
 
   // OCR распознавание текста
-  const handleOcr = async () => {
+  const handleOcr = async (engine: 'tesseract' | 'claude' = 'tesseract') => {
     setIsOcrRunning(true)
     setOcrProgress(0)
-    setOcrStatus('Запуск OCR...')
+    setOcrEngine(engine)
+    setOcrStatus(`Запуск OCR (${engine === 'claude' ? 'Claude' : 'Tesseract'})...`)
     setError(null)
 
     try {
-      const url = `/api/cases/${id}/volumes/${volumeId}/ocr-stream`
+      const url = `/api/cases/${id}/volumes/${volumeId}/ocr-stream?engine=${engine}`
       const eventSource = new EventSource(url)
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data)
 
         if (data.type === 'start') {
-          setOcrStatus(`Всего страниц: ${data.total_pages}`)
+          const engineLabel = data.engine === 'claude' ? 'Claude' : 'Tesseract'
+          setOcrStatus(`${engineLabel}: ${data.total_pages} страниц`)
         } else if (data.type === 'progress') {
           setOcrProgress(data.progress)
-          setOcrStatus(`Страница ${data.page}/${data.total} (${data.confidence}%)`)
+          const engineLabel = data.engine === 'claude' ? 'Claude' : 'Tesseract'
+          setOcrStatus(`${engineLabel}: ${data.page}/${data.total} (${data.confidence}%)`)
         } else if (data.type === 'complete') {
-          setOcrStatus(`Готово! Распознано ${data.total_pages} страниц`)
+          const engineLabel = data.engine === 'claude' ? 'Claude' : 'Tesseract'
+          setOcrStatus(`${engineLabel}: готово! ${data.total_pages} страниц`)
           setIsOcrRunning(false)
           eventSource.close()
         } else if (data.type === 'error') {
@@ -197,29 +202,49 @@ export default function PDFViewerPage() {
             </button>
 
             <div className="flex items-center space-x-3">
-              {/* OCR Button */}
-              <button
-                onClick={handleOcr}
-                disabled={isOcrRunning}
-                className="apple-btn-secondary flex items-center"
-              >
-                {isOcrRunning ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    OCR {ocrProgress}%
-                  </>
-                ) : (
-                  <>
+              {/* OCR Buttons */}
+              {isOcrRunning && (
+                <button
+                  disabled={true}
+                  className="apple-btn-secondary flex items-center"
+                >
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {ocrEngine === 'claude' ? 'Claude' : 'Tesseract'} {ocrProgress}%
+                </button>
+              )}
+
+              {/* OCR Status */}
+              {ocrStatus && !isOcrRunning && (
+                <span className="text-sm text-gray-400 ml-2">{ocrStatus}</span>
+              )}
+
+              {!isOcrRunning && (
+                <>
+                  <button
+                    onClick={() => handleOcr('tesseract')}
+                    className="apple-btn-secondary flex items-center"
+                    title="Бесплатно, но качество ниже"
+                  >
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                     </svg>
-                    Распознать текст
-                  </>
-                )}
-              </button>
+                    OCR Tesseract
+                  </button>
+                  <button
+                    onClick={() => handleOcr('claude')}
+                    className="apple-btn-primary flex items-center"
+                    title="Платно (~$0.50/10 стр), но лучше качество"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    OCR Claude
+                  </button>
+                </>
+              )}
 
               {/* Extract Documents Button */}
               <button
@@ -432,35 +457,46 @@ export default function PDFViewerPage() {
                   <div className="text-gray-400">Нажмите "Распознать текст"</div>
                 </div>
               ) : (
-                allPagesText.map((page) => (
-                  <div
-                    key={page.page_number}
-                    id={`ocr-page-${page.page_number}`}
-                    className="bg-white flex-shrink-0 overflow-hidden"
-                    style={{
-                      width: `${420 * ocrZoom / 100}px`,
-                      height: `${594 * ocrZoom / 100}px`,
-                      marginBottom: '8px',
-                      padding: `${20 * ocrZoom / 100}px ${25 * ocrZoom / 100}px`,
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
-                    }}
-                  >
+                allPagesText.map((page) => {
+                  // Автоподбор размера шрифта
+                  const lines = (page.text || '').split('\n').length
+                  const contentHeight = 554 // высота контента в px (594 - 40 padding)
+                  const lineHeightRatio = 1.15
+                  // Рассчитываем оптимальный размер шрифта
+                  let fontSize = contentHeight / (lines * lineHeightRatio)
+                  // Ограничиваем: минимум 5px, максимум 9px
+                  fontSize = Math.max(5, Math.min(9, fontSize))
+
+                  return (
                     <div
-                      className="h-full overflow-hidden"
+                      key={page.page_number}
+                      id={`ocr-page-${page.page_number}`}
+                      className="bg-white flex-shrink-0 overflow-hidden"
                       style={{
-                        fontSize: `${6.5 * ocrZoom / 100}px`,
-                        fontFamily: 'Arial, sans-serif',
-                        lineHeight: '1.15',
-                        color: '#000',
-                        textAlign: 'justify'
+                        width: `${420 * ocrZoom / 100}px`,
+                        height: `${594 * ocrZoom / 100}px`,
+                        marginBottom: '8px',
+                        padding: `${20 * ocrZoom / 100}px ${25 * ocrZoom / 100}px`,
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
                       }}
                     >
-                      <div className="whitespace-pre-wrap">
-                        {page.text || ''}
+                      <div
+                        className="h-full overflow-hidden"
+                        style={{
+                          fontSize: `${fontSize * ocrZoom / 100}px`,
+                          fontFamily: 'Arial, sans-serif',
+                          lineHeight: `${lineHeightRatio}`,
+                          color: '#000',
+                          textAlign: 'justify'
+                        }}
+                      >
+                        <div className="whitespace-pre-wrap">
+                          {page.text || ''}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </div>

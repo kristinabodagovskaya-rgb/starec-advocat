@@ -1272,10 +1272,12 @@ async def sync_gdrive_folder(
 async def ocr_volume_stream(
     case_id: int,
     volume_id: int,
+    engine: str = "tesseract",  # "tesseract" или "claude"
     db: Session = Depends(get_db)
 ):
     """
     Запустить OCR распознавание тома (SSE stream)
+    engine: "tesseract" (бесплатно) или "claude" (платно, лучше качество)
     ⚠️ ВЫДЕЛЕННЫЕ ДОКУМЕНТЫ НЕ ТРОГАЕМ!
     """
     from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count
@@ -1295,19 +1297,28 @@ async def ocr_volume_stream(
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Файл не найден")
 
+    # Валидация engine
+    if engine not in ["tesseract", "claude"]:
+        engine = "tesseract"
+
+    # Проверка API ключа для Claude
+    if engine == "claude" and not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ANTHROPIC_API_KEY не настроен. Добавьте ключ в .env файл"
+        )
+
     async def generate():
         try:
-            from app.services.ocr_service import ocr_pdf_page_with_boxes
-
             page_count = get_pdf_page_count(file_path)
-            # Ограничение для тестирования - только первые 20 страниц
-            max_pages = min(page_count, 20)
-            yield f"data: {json.dumps({'type': 'start', 'total_pages': max_pages})}\n\n"
+            # Ограничение для тестирования - только первые 10 страниц
+            max_pages = min(page_count, 10)
+            yield f"data: {json.dumps({'type': 'start', 'total_pages': max_pages, 'engine': engine})}\n\n"
 
             for page_num in range(1, max_pages + 1):
                 try:
-                    # Распознаём страницу С КООРДИНАТАМИ
-                    text, confidence, word_boxes = ocr_pdf_page_with_boxes(file_path, page_num)
+                    # Распознаём страницу выбранным движком
+                    text, confidence = ocr_pdf_page(file_path, page_num, engine=engine, api_key=settings.ANTHROPIC_API_KEY)
 
                     # Сохраняем в БД
                     existing = db.query(PageText).filter(
@@ -1318,16 +1329,16 @@ async def ocr_volume_stream(
                     if existing:
                         existing.text = text
                         existing.confidence = confidence
-                        existing.ocr_engine = "tesseract"
-                        existing.word_boxes = json.dumps(word_boxes)
+                        existing.ocr_engine = engine
+                        existing.word_boxes = None
                     else:
                         page_text = PageText(
                             volume_id=volume_id,
                             page_number=page_num,
                             text=text,
                             confidence=confidence,
-                            ocr_engine="tesseract",
-                            word_boxes=json.dumps(word_boxes)
+                            ocr_engine=engine,
+                            word_boxes=None
                         )
                         db.add(page_text)
 
@@ -1335,8 +1346,8 @@ async def ocr_volume_stream(
 
                     # Отправляем прогресс
                     progress = int(page_num / max_pages * 100)
-                    print(f"OCR progress: page {page_num}/{max_pages} = {progress}%")
-                    yield f"data: {json.dumps({'type': 'progress', 'page': page_num, 'total': max_pages, 'progress': progress, 'confidence': confidence})}\n\n"
+                    print(f"OCR [{engine}] progress: page {page_num}/{max_pages} = {progress}%")
+                    yield f"data: {json.dumps({'type': 'progress', 'page': page_num, 'total': max_pages, 'progress': progress, 'confidence': confidence, 'engine': engine})}\n\n"
 
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'page_error', 'page': page_num, 'error': str(e)})}\n\n"
@@ -1345,7 +1356,7 @@ async def ocr_volume_stream(
             volume.processing_status = "ocr_completed"
             db.commit()
 
-            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages, 'engine': engine})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
