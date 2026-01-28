@@ -22,6 +22,16 @@ export default function PDFViewerPage() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
+  // OCR состояния
+  const [isOcrRunning, setIsOcrRunning] = useState(false)
+  const [ocrProgress, setOcrProgress] = useState(0)
+  const [ocrStatus, setOcrStatus] = useState<string | null>(null)
+  const [allPagesText, setAllPagesText] = useState<{page_number: number, text: string, confidence: number, word_boxes?: {text: string, x: number, y: number, width: number, height: number, conf: number}[]}[]>([])
+  const [showOcrText, setShowOcrText] = useState(false)
+  const [isLoadingText, setIsLoadingText] = useState(false)
+  const [ocrZoom, setOcrZoom] = useState(100)
+  const [ocrCurrentPage, setOcrCurrentPage] = useState(1)
+
   const pdfUrl = `/api/cases/${id}/volumes/${volumeId}/file`
 
   // Загружаем сохранённые документы при открытии
@@ -93,6 +103,73 @@ export default function PDFViewerPage() {
     }
   }
 
+  // Загрузка ВСЕХ страниц текста
+  const loadAllPagesText = async () => {
+    setIsLoadingText(true)
+    try {
+      const response = await fetch(`/api/cases/${id}/volumes/${volumeId}/all-pages-text`)
+      if (response.ok) {
+        const data = await response.json()
+        setAllPagesText(data.pages || [])
+      }
+    } catch (err) {
+      console.error('Error loading pages text:', err)
+    } finally {
+      setIsLoadingText(false)
+    }
+  }
+
+  // Скролл к выбранной OCR странице
+  useEffect(() => {
+    if (ocrCurrentPage && allPagesText.length > 0) {
+      const el = document.getElementById(`ocr-page-${ocrCurrentPage}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+  }, [ocrCurrentPage, allPagesText.length])
+
+  // OCR распознавание текста
+  const handleOcr = async () => {
+    setIsOcrRunning(true)
+    setOcrProgress(0)
+    setOcrStatus('Запуск OCR...')
+    setError(null)
+
+    try {
+      const url = `/api/cases/${id}/volumes/${volumeId}/ocr-stream`
+      const eventSource = new EventSource(url)
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data)
+
+        if (data.type === 'start') {
+          setOcrStatus(`Всего страниц: ${data.total_pages}`)
+        } else if (data.type === 'progress') {
+          setOcrProgress(data.progress)
+          setOcrStatus(`Страница ${data.page}/${data.total} (${data.confidence}%)`)
+        } else if (data.type === 'complete') {
+          setOcrStatus(`Готово! Распознано ${data.total_pages} страниц`)
+          setIsOcrRunning(false)
+          eventSource.close()
+        } else if (data.type === 'error') {
+          setError(data.message || 'Ошибка OCR')
+          setIsOcrRunning(false)
+          eventSource.close()
+        }
+      }
+
+      eventSource.onerror = () => {
+        setError('Ошибка подключения к серверу')
+        setIsOcrRunning(false)
+        eventSource.close()
+      }
+    } catch (err) {
+      setError('Ошибка OCR: ' + String(err))
+      setIsOcrRunning(false)
+    }
+  }
+
   const goToPage = (page: number) => {
     setCurrentPage(page)
     const iframe = document.getElementById('pdf-viewer') as HTMLIFrameElement
@@ -120,6 +197,30 @@ export default function PDFViewerPage() {
             </button>
 
             <div className="flex items-center space-x-3">
+              {/* OCR Button */}
+              <button
+                onClick={handleOcr}
+                disabled={isOcrRunning}
+                className="apple-btn-secondary flex items-center"
+              >
+                {isOcrRunning ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    OCR {ocrProgress}%
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Распознать текст
+                  </>
+                )}
+              </button>
+
               {/* Extract Documents Button */}
               <button
                 onClick={handleExtractDocuments}
@@ -142,6 +243,22 @@ export default function PDFViewerPage() {
                     {extractedDocs.length > 0 ? 'Выделить заново' : 'Выделить документы'}
                   </>
                 )}
+              </button>
+
+              {/* Toggle OCR Text Button */}
+              <button
+                onClick={() => {
+                  setShowOcrText(!showOcrText)
+                  if (!showOcrText && allPagesText.length === 0) {
+                    loadAllPagesText()
+                  }
+                }}
+                className="apple-btn-secondary flex items-center"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                {showOcrText ? 'Скрыть текст' : 'Показать текст'}
               </button>
 
               {/* Toggle Sidebar Button (if docs extracted) */}
@@ -205,8 +322,8 @@ export default function PDFViewerPage() {
 
       {/* Main Content - независимый скроллинг колонок */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* PDF Viewer - свой скролл внутри iframe */}
-        <div className="flex-1 bg-[#525659] overflow-hidden">
+        {/* PDF Viewer - 50% когда текст показан */}
+        <div className={`${showOcrText ? 'w-1/2' : 'flex-1'} overflow-hidden`} style={{ backgroundColor: '#52555a' }}>
           <iframe
             id="pdf-viewer"
             src={pdfUrl}
@@ -214,6 +331,140 @@ export default function PDFViewerPage() {
             title="PDF Viewer"
           />
         </div>
+
+        {/* OCR Text Column - точно как PDF */}
+        {showOcrText && (
+          <div className="w-1/2 h-full flex flex-col" style={{ backgroundColor: '#52555a' }}>
+            {/* Тулбар */}
+            <div style={{ height: '56px', minHeight: '56px' }} className="bg-[#38383b] flex items-center px-4 flex-shrink-0">
+              {/* Страницы - как у PDF */}
+              <div className="flex items-center mr-4">
+                <input
+                  type="text"
+                  value={ocrCurrentPage}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value)
+                    if (!isNaN(val) && val >= 1 && val <= allPagesText.length) {
+                      setOcrCurrentPage(val)
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = parseInt((e.target as HTMLInputElement).value)
+                      if (!isNaN(val) && val >= 1 && val <= allPagesText.length) {
+                        setOcrCurrentPage(val)
+                      }
+                    }
+                  }}
+                  className="w-8 text-center text-xs bg-[#2d2d30] text-white border-none rounded px-1 py-0.5"
+                  style={{ outline: 'none' }}
+                />
+                <span className="text-[#b4b4b4] text-xs ml-1">/ {allPagesText.length || '—'}</span>
+              </div>
+
+              {/* Разделитель */}
+              <div className="w-px h-4 bg-[#5a5a5e] mr-2"></div>
+
+              {/* Зум - / + */}
+              <div className="flex items-center space-x-1 mr-4">
+                <button onClick={() => setOcrZoom(z => Math.max(50, z - 10))} className="p-1 hover:bg-[#4a4a4e] rounded">
+                  <svg className="w-4 h-4 text-[#b4b4b4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                  </svg>
+                </button>
+                <button onClick={() => setOcrZoom(z => Math.min(200, z + 10))} className="p-1 hover:bg-[#4a4a4e] rounded">
+                  <svg className="w-4 h-4 text-[#b4b4b4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1"></div>
+
+              {/* Скачать и печать справа */}
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => {
+                    const text = allPagesText.map(p => `--- Страница ${p.page_number} ---\n${p.text}`).join('\n\n')
+                    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'ocr-text.txt'
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  className="p-1 hover:bg-[#4a4a4e] rounded"
+                  title="Скачать"
+                >
+                  <svg className="w-4 h-4 text-[#b4b4b4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    const text = allPagesText.map(p => `--- Страница ${p.page_number} ---\n${p.text}`).join('\n\n')
+                    const printWindow = window.open('', '_blank')
+                    if (printWindow) {
+                      printWindow.document.write(`<html><head><title>OCR</title></head><body><pre style="font-family: Times New Roman; font-size: 12pt; white-space: pre-wrap;">${text}</pre></body></html>`)
+                      printWindow.document.close()
+                      printWindow.print()
+                    }
+                  }}
+                  className="p-1 hover:bg-[#4a4a4e] rounded"
+                  title="Печать"
+                >
+                  <svg className="w-4 h-4 text-[#b4b4b4]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {/* Контент - точно как PDF */}
+            <div className="flex-1 overflow-y-auto flex flex-col items-center" style={{ padding: '8px 0' }}>
+              {isLoadingText ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-white">Загрузка...</div>
+                </div>
+              ) : allPagesText.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-gray-400">Нажмите "Распознать текст"</div>
+                </div>
+              ) : (
+                allPagesText.map((page) => (
+                  <div
+                    key={page.page_number}
+                    id={`ocr-page-${page.page_number}`}
+                    className="bg-white flex-shrink-0 overflow-hidden"
+                    style={{
+                      width: `${420 * ocrZoom / 100}px`,
+                      height: `${594 * ocrZoom / 100}px`,
+                      marginBottom: '8px',
+                      padding: `${20 * ocrZoom / 100}px ${25 * ocrZoom / 100}px`,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
+                    }}
+                  >
+                    <div
+                      className="h-full overflow-hidden"
+                      style={{
+                        fontSize: `${6.5 * ocrZoom / 100}px`,
+                        fontFamily: 'Arial, sans-serif',
+                        lineHeight: '1.15',
+                        color: '#000',
+                        textAlign: 'justify'
+                      }}
+                    >
+                      <div className="whitespace-pre-wrap">
+                        {page.text || ''}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Sidebar with extracted documents - независимый скролл */}
         {showSidebar && extractedDocs.length > 0 && (

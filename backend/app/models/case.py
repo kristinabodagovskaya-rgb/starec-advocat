@@ -63,6 +63,7 @@ class Volume(Base):
     case = relationship("Case", back_populates="volumes")
     documents = relationship("Document", back_populates="volume", cascade="all, delete-orphan")
     extraction_runs = relationship("ExtractionRun", back_populates="volume", cascade="all, delete-orphan")
+    page_texts = relationship("PageText", back_populates="volume", cascade="all, delete-orphan")
 
 
 class ExtractionRun(Base):
@@ -129,3 +130,24 @@ class Document(Base):
     extraction_run = relationship("ExtractionRun", back_populates="documents")
     entities = relationship("Entity", back_populates="document", cascade="all, delete-orphan")
     analyses = relationship("DocumentAnalysis", back_populates="document", cascade="all, delete-orphan")
+
+
+class PageText(Base):
+    """OCR текст страницы"""
+    __tablename__ = "page_texts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+    page_number = Column(Integer, nullable=False)
+
+    # OCR результат
+    ocr_engine = Column(String(50), default="tesseract")
+    text = Column(Text)
+    confidence = Column(Integer)  # 0-100%
+    word_boxes = Column(Text)  # JSON с координатами слов
+
+    # Метаданные
+    processed_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    volume = relationship("Volume", back_populates="page_texts")

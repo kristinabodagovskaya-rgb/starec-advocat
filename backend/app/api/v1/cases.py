@@ -13,7 +13,7 @@ import re
 import json
 import base64
 
-from app.models import get_db, Case, Volume, Document, ExtractionRun
+from app.models import get_db, Case, Volume, Document, ExtractionRun, PageText
 from app.core.config import settings
 
 # Для работы с PDF и Claude API
@@ -319,6 +319,11 @@ async def get_volume_file(
     # Путь к файлу
     upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
     file_path = os.path.join(upload_dir, volume.file_name)
+
+    print(f"DEBUG get_volume_file: UPLOAD_BASE_DIR={UPLOAD_BASE_DIR}")
+    print(f"DEBUG get_volume_file: upload_dir={upload_dir}")
+    print(f"DEBUG get_volume_file: file_path={file_path}")
+    print(f"DEBUG get_volume_file: exists={os.path.exists(file_path)}")
 
     if not os.path.exists(file_path):
         raise HTTPException(
@@ -1257,3 +1262,181 @@ async def sync_gdrive_folder(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка: {str(e)}"
         )
+
+
+# ============================================================================
+# OCR ENDPOINTS
+# ============================================================================
+
+@router.get("/{case_id}/volumes/{volume_id}/ocr-stream")
+async def ocr_volume_stream(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Запустить OCR распознавание тома (SSE stream)
+    ⚠️ ВЫДЕЛЕННЫЕ ДОКУМЕНТЫ НЕ ТРОГАЕМ!
+    """
+    from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count
+
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Путь к файлу
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    async def generate():
+        try:
+            from app.services.ocr_service import ocr_pdf_page_with_boxes
+
+            page_count = get_pdf_page_count(file_path)
+            # Ограничение для тестирования - только первые 20 страниц
+            max_pages = min(page_count, 20)
+            yield f"data: {json.dumps({'type': 'start', 'total_pages': max_pages})}\n\n"
+
+            for page_num in range(1, max_pages + 1):
+                try:
+                    # Распознаём страницу С КООРДИНАТАМИ
+                    text, confidence, word_boxes = ocr_pdf_page_with_boxes(file_path, page_num)
+
+                    # Сохраняем в БД
+                    existing = db.query(PageText).filter(
+                        PageText.volume_id == volume_id,
+                        PageText.page_number == page_num
+                    ).first()
+
+                    if existing:
+                        existing.text = text
+                        existing.confidence = confidence
+                        existing.ocr_engine = "tesseract"
+                        existing.word_boxes = json.dumps(word_boxes)
+                    else:
+                        page_text = PageText(
+                            volume_id=volume_id,
+                            page_number=page_num,
+                            text=text,
+                            confidence=confidence,
+                            ocr_engine="tesseract",
+                            word_boxes=json.dumps(word_boxes)
+                        )
+                        db.add(page_text)
+
+                    db.commit()
+
+                    # Отправляем прогресс
+                    progress = int(page_num / max_pages * 100)
+                    print(f"OCR progress: page {page_num}/{max_pages} = {progress}%")
+                    yield f"data: {json.dumps({'type': 'progress', 'page': page_num, 'total': max_pages, 'progress': progress, 'confidence': confidence})}\n\n"
+
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'page_error', 'page': page_num, 'error': str(e)})}\n\n"
+
+            # Обновляем статус тома
+            volume.processing_status = "ocr_completed"
+            db.commit()
+
+            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.get("/{case_id}/volumes/{volume_id}/page/{page_number}/text")
+async def get_page_text(
+    case_id: int,
+    volume_id: int,
+    page_number: int,
+    db: Session = Depends(get_db)
+):
+    """Получить распознанный текст страницы"""
+    page_text = db.query(PageText).filter(
+        PageText.volume_id == volume_id,
+        PageText.page_number == page_number
+    ).first()
+
+    if not page_text:
+        return {"text": None, "confidence": None, "message": "Текст не распознан"}
+
+    return {
+        "text": page_text.text,
+        "confidence": page_text.confidence,
+        "ocr_engine": page_text.ocr_engine,
+        "page_number": page_number
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/all-pages-text")
+async def get_all_pages_text(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить весь распознанный текст тома (все страницы)"""
+    pages = db.query(PageText).filter(
+        PageText.volume_id == volume_id
+    ).order_by(PageText.page_number).all()
+
+    if not pages:
+        return {"pages": [], "total": 0}
+
+    return {
+        "pages": [
+            {
+                "page_number": p.page_number,
+                "text": p.text,
+                "confidence": p.confidence,
+                "word_boxes": json.loads(p.word_boxes) if p.word_boxes else []
+            }
+            for p in pages
+        ],
+        "total": len(pages)
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/ocr-status")
+async def get_ocr_status(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить статус OCR для тома"""
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Считаем распознанные страницы
+    recognized_count = db.query(PageText).filter(
+        PageText.volume_id == volume_id
+    ).count()
+
+    return {
+        "volume_id": volume_id,
+        "total_pages": volume.page_count or 0,
+        "recognized_pages": recognized_count,
+        "status": volume.processing_status,
+        "progress": int(recognized_count / volume.page_count * 100) if volume.page_count else 0
+    }

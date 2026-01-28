@@ -142,12 +142,14 @@ export default function VolumesPage() {
       pending: 'apple-badge-success',
       processing: 'apple-badge-warning',
       completed: 'apple-badge-success',
+      ocr_completed: 'apple-badge-success',
       failed: 'apple-badge-danger',
     }
     const labels = {
       pending: 'Загружен',
       processing: 'Обработка',
       completed: 'Готово',
+      ocr_completed: 'OCR готов',
       failed: 'Ошибка',
     }
     return (
