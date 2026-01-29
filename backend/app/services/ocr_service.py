@@ -20,8 +20,8 @@ OCR_DPI = 300
 OCR_LANG = 'rus+eng'
 TESSERACT_CONFIG = '--oem 1 --psm 6 --dpi 300'
 
-# Claude для OCR (используем низкий DPI для экономии)
-CLAUDE_OCR_DPI = 150
+# Claude для OCR (300 DPI для лучшего распознавания рукописи)
+CLAUDE_OCR_DPI = 300
 
 
 def preprocess_image_simple(image: Image.Image) -> Image.Image:
@@ -94,57 +94,76 @@ def ocr_pdf_page_tesseract(pdf_path: str, page_number: int) -> Tuple[str, int]:
 # CLAUDE VISION OCR (платно, лучше качество)
 # ============================================================
 
-def ocr_claude(image: Image.Image, api_key: str = None) -> Tuple[str, int]:
-    """OCR с помощью Claude Vision"""
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
+def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3) -> Tuple[str, int]:
+    """OCR с помощью Claude Vision с автоматическим retry при ошибках"""
+    import time
 
-        # Конвертируем изображение в base64
-        img_base64 = image_to_base64(image)
+    client = anthropic.Anthropic(api_key=api_key)
 
-        # Запрос к Claude
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": img_base64
+    # Конвертируем изображение в base64
+    img_base64 = image_to_base64(image)
+
+    prompt = """Ты — OCR-ассистент. Распознай весь текст с изображения документа.
+
+ПРАВИЛА:
+
+1. СТРУКТУРА: сохраняй оригинальное расположение текста, переносы строк, отступы. Не переупорядочивай.
+
+2. ТАБЛИЦЫ: используй табуляцию для колонок. Сохраняй структуру строк и столбцов.
+
+3. РУКОПИСНЫЙ ТЕКСТ: ОБЯЗАТЕЛЬНО распознавай ВСЕ рукописные записи, даже если почерк плохой. Если можешь разобрать хоть что-то — пиши с вариантами: Ярутов (возм. Яругов). Если совсем неразборчиво — пиши [неразборчиво], но НИКОГДА не оставляй пустым и не пропускай. В таблицах рукопись часто в ячейках — проверяй КАЖДУЮ ячейку!
+
+4. ИЗОБРАЖЕНИЯ: на месте фото, схем, печатей пиши [ИЗОБРАЖЕНИЕ: описание]. Например: [ИЗОБРАЖЕНИЕ: подпись "А.И. Петров", дата 12.04.2025]. Если внутри изображения есть текст (скан документа внутри документа) — [ВЛОЖЕННЫЙ ТЕКСТ: содержимое].
+
+5. МЕТАДАННЫЕ: включай номера страниц, даты, штампы, колонтитулы — всё что видишь.
+
+6. ТОЧНОСТЬ: никогда не выдумывай текст. Не исправляй опечатки без пометки. Не упрощай и не перефразируй.
+
+Выведи ТОЛЬКО распознанный текст без комментариев:"""
+
+    for attempt in range(max_retries):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=4096,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": img_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt
                             }
-                        },
-                        {
-                            "type": "text",
-                            "text": """Распознай весь текст на этом изображении документа.
+                        ]
+                    }
+                ]
+            )
 
-ВАЖНО:
-1. Сохрани оригинальное форматирование и структуру
-2. Сохрани все переносы строк как в оригинале
-3. Для таблиц используй пробелы для выравнивания колонок
-4. Не добавляй никаких пояснений — только распознанный текст
-5. Если есть номера страниц, даты, подписи — включи их
+            text = message.content[0].text
+            # Claude обычно даёт очень высокую точность
+            confidence = 95
 
-Выведи ТОЛЬКО распознанный текст:"""
-                        }
-                    ]
-                }
-            ]
-        )
+            return text.strip(), confidence
 
-        text = message.content[0].text
-        # Claude обычно даёт очень высокую точность
-        confidence = 95
+        except Exception as e:
+            print(f"Ошибка Claude OCR (попытка {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 2, 4, 6 секунд
+                print(f"Повторная попытка через {wait_time} сек...")
+                time.sleep(wait_time)
+            else:
+                print(f"Все {max_retries} попытки неудачны")
+                return "", 0
 
-        return text.strip(), confidence
-
-    except Exception as e:
-        print(f"Ошибка Claude OCR: {e}")
-        return "", 0
+    return "", 0
 
 
 def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None) -> Tuple[str, int]:
