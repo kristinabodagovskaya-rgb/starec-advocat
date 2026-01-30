@@ -4,7 +4,7 @@
 
 from app.models.database import Base, get_db
 from app.models.user import User
-from app.models.case import Case, Volume, Document, ExtractionRun, PageText
+from app.models.case import Case, Volume, Document, ExtractionRun, PageText, OcrRun, TextChunk
 from app.models.analysis import Entity, DocumentAnalysis, CaseAnalysis, DefenseStrategy
 
 __all__ = [
@@ -16,6 +16,8 @@ __all__ = [
     "Document",
     "ExtractionRun",
     "PageText",
+    "OcrRun",
+    "TextChunk",
     "Entity",
     "DocumentAnalysis",
     "CaseAnalysis",

@@ -94,11 +94,14 @@ def ocr_pdf_page_tesseract(pdf_path: str, page_number: int) -> Tuple[str, int]:
 # CLAUDE VISION OCR (платно, лучше качество)
 # ============================================================
 
-def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3) -> Tuple[str, int]:
+def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, model: str = None) -> Tuple[str, int]:
     """OCR с помощью Claude Vision с автоматическим retry при ошибках"""
     import time
 
     client = anthropic.Anthropic(api_key=api_key)
+
+    # Выбор модели (по умолчанию Haiku)
+    model_id = model or "claude-haiku-4-5-20251001"
 
     # Конвертируем изображение в base64
     img_base64 = image_to_base64(image)
@@ -124,8 +127,9 @@ def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3) ->
     for attempt in range(max_retries):
         try:
             message = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=model_id,
                 max_tokens=4096,
+                temperature=0,
                 messages=[
                     {
                         "role": "user",
@@ -166,25 +170,26 @@ def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3) ->
     return "", 0
 
 
-def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None) -> Tuple[str, int]:
+def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None, model: str = None) -> Tuple[str, int]:
     """OCR страницы PDF с Claude Vision"""
     # Используем низкий DPI для экономии токенов
     image = extract_page_image_for_ocr(pdf_path, page_number, dpi=CLAUDE_OCR_DPI)
-    return ocr_claude(image, api_key=api_key)
+    return ocr_claude(image, api_key=api_key, model=model)
 
 
 # ============================================================
 # УНИВЕРСАЛЬНЫЕ ФУНКЦИИ
 # ============================================================
 
-def ocr_pdf_page(pdf_path: str, page_number: int, engine: str = "tesseract", api_key: str = None) -> Tuple[str, int]:
+def ocr_pdf_page(pdf_path: str, page_number: int, engine: str = "tesseract", api_key: str = None, model: str = None) -> Tuple[str, int]:
     """
     OCR страницы PDF
     engine: "tesseract" или "claude"
     api_key: нужен только для Claude
+    model: модель Claude (например "claude-haiku-4-5-20251001" или "claude-sonnet-4-20250514")
     """
     if engine == "claude":
-        return ocr_pdf_page_claude(pdf_path, page_number, api_key=api_key)
+        return ocr_pdf_page_claude(pdf_path, page_number, api_key=api_key, model=model)
     else:
         return ocr_pdf_page_tesseract(pdf_path, page_number)
 

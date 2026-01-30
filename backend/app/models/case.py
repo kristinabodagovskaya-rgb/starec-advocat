@@ -64,6 +64,8 @@ class Volume(Base):
     documents = relationship("Document", back_populates="volume", cascade="all, delete-orphan")
     extraction_runs = relationship("ExtractionRun", back_populates="volume", cascade="all, delete-orphan")
     page_texts = relationship("PageText", back_populates="volume", cascade="all, delete-orphan")
+    ocr_runs = relationship("OcrRun", back_populates="volume", cascade="all, delete-orphan")
+    text_chunks = relationship("TextChunk", back_populates="volume", cascade="all, delete-orphan")
 
 
 class ExtractionRun(Base):
@@ -138,6 +140,7 @@ class PageText(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+    ocr_run_id = Column(Integer, ForeignKey("ocr_runs.id"), nullable=True)
     page_number = Column(Integer, nullable=False)
 
     # OCR результат
@@ -151,3 +154,58 @@ class PageText(Base):
 
     # Связи
     volume = relationship("Volume", back_populates="page_texts")
+    ocr_run = relationship("OcrRun", back_populates="page_texts")
+
+
+class OcrRun(Base):
+    """История запусков OCR"""
+    __tablename__ = "ocr_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+
+    # Параметры запуска
+    engine = Column(String(50), nullable=False)  # tesseract, claude
+    model = Column(String(100))  # claude-sonnet-4, claude-haiku-4-5 и т.д.
+    pages_processed = Column(Integer, default=0)
+    pages_total = Column(Integer, default=0)
+
+    # Результат
+    status = Column(String(20), default="running")  # running, completed, failed
+    avg_confidence = Column(Integer)  # средняя уверенность 0-100%
+
+    # Время
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+
+    # Связи
+    volume = relationship("Volume", back_populates="ocr_runs")
+    page_texts = relationship("PageText", back_populates="ocr_run", cascade="all, delete-orphan")
+    text_chunks = relationship("TextChunk", back_populates="ocr_run", cascade="all, delete-orphan")
+
+
+class TextChunk(Base):
+    """Чанки текста с векторами для семантического поиска"""
+    __tablename__ = "text_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ocr_run_id = Column(Integer, ForeignKey("ocr_runs.id"), nullable=False)
+    volume_id = Column(Integer, ForeignKey("volumes.id"), nullable=False)
+    page_number = Column(Integer, nullable=False)
+
+    # Текст чанка
+    chunk_index = Column(Integer, nullable=False)
+    text = Column(Text, nullable=False)
+    char_start = Column(Integer)
+    char_end = Column(Integer)
+
+    # Вектор (хранится как JSON строка)
+    embedding = Column(Text)
+    embedding_model = Column(String(100))
+
+    # Метаданные
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    ocr_run = relationship("OcrRun", back_populates="text_chunks")
+    volume = relationship("Volume", back_populates="text_chunks")

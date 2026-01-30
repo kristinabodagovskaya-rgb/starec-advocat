@@ -13,7 +13,7 @@ import re
 import json
 import base64
 
-from app.models import get_db, Case, Volume, Document, ExtractionRun, PageText
+from app.models import get_db, Case, Volume, Document, ExtractionRun, PageText, OcrRun, TextChunk
 from app.core.config import settings
 
 # Для работы с PDF и Claude API
@@ -1273,14 +1273,17 @@ async def ocr_volume_stream(
     case_id: int,
     volume_id: int,
     engine: str = "tesseract",  # "tesseract" или "claude"
+    model: str = "haiku",  # "haiku" или "sonnet" (только для claude)
     db: Session = Depends(get_db)
 ):
     """
     Запустить OCR распознавание тома (SSE stream)
     engine: "tesseract" (бесплатно) или "claude" (платно, лучше качество)
+    model: "haiku" (быстрый) или "sonnet" (лучше качество) - только для claude
     ⚠️ ВЫДЕЛЕННЫЕ ДОКУМЕНТЫ НЕ ТРОГАЕМ!
     """
     from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count
+    import asyncio
 
     volume = db.query(Volume).filter(
         Volume.id == volume_id,
@@ -1311,38 +1314,58 @@ async def ocr_volume_stream(
     async def generate():
         try:
             page_count = get_pdf_page_count(file_path)
-            # Ограничение для тестирования - только первые 10 страниц
-            max_pages = min(page_count, 10)
+            # Полное распознавание всех страниц
+            max_pages = page_count
+
+            # Создаём запись в истории OCR
+            model_name = None
+            if engine == "claude":
+                if model == "sonnet":
+                    model_name = "claude-sonnet-4-20250514"
+                else:
+                    model_name = "claude-haiku-4-5-20251001"
+            ocr_run = OcrRun(
+                volume_id=volume_id,
+                engine=engine,
+                model=model_name,
+                pages_total=max_pages,
+                pages_processed=0,
+                status="running"
+            )
+            db.add(ocr_run)
+            db.commit()
+            db.refresh(ocr_run)
+
             yield f"data: {json.dumps({'type': 'start', 'total_pages': max_pages, 'engine': engine})}\n\n"
+
+            total_confidence = 0
+            successful_pages = 0
 
             for page_num in range(1, max_pages + 1):
                 try:
                     # Распознаём страницу выбранным движком
-                    text, confidence = ocr_pdf_page(file_path, page_num, engine=engine, api_key=settings.ANTHROPIC_API_KEY)
+                    text, confidence = await asyncio.to_thread(
+                        ocr_pdf_page, file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name
+                    )
 
-                    # Сохраняем в БД
-                    existing = db.query(PageText).filter(
-                        PageText.volume_id == volume_id,
-                        PageText.page_number == page_num
-                    ).first()
+                    # Сохраняем в БД (новая запись для каждого OCR run)
+                    page_text = PageText(
+                        volume_id=volume_id,
+                        ocr_run_id=ocr_run.id,
+                        page_number=page_num,
+                        text=text,
+                        confidence=confidence,
+                        ocr_engine=engine,
+                        word_boxes=None
+                    )
+                    db.add(page_text)
 
-                    if existing:
-                        existing.text = text
-                        existing.confidence = confidence
-                        existing.ocr_engine = engine
-                        existing.word_boxes = None
-                    else:
-                        page_text = PageText(
-                            volume_id=volume_id,
-                            page_number=page_num,
-                            text=text,
-                            confidence=confidence,
-                            ocr_engine=engine,
-                            word_boxes=None
-                        )
-                        db.add(page_text)
-
+                    # Обновляем счётчик в OCR run
+                    ocr_run.pages_processed = page_num
                     db.commit()
+
+                    total_confidence += confidence
+                    successful_pages += 1
 
                     # Отправляем прогресс
                     progress = int(page_num / max_pages * 100)
@@ -1352,11 +1375,15 @@ async def ocr_volume_stream(
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'page_error', 'page': page_num, 'error': str(e)})}\n\n"
 
-            # Обновляем статус тома
+            # Обновляем статус тома и OCR run
             volume.processing_status = "ocr_completed"
+            ocr_run.status = "completed"
+            ocr_run.avg_confidence = int(total_confidence / successful_pages) if successful_pages > 0 else 0
+            from datetime import datetime
+            ocr_run.completed_at = datetime.utcnow()
             db.commit()
 
-            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages, 'engine': engine})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages, 'engine': engine, 'ocr_run_id': ocr_run.id})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -1370,6 +1397,64 @@ async def ocr_volume_stream(
             "X-Accel-Buffering": "no"
         }
     )
+
+
+@router.get("/{case_id}/volumes/{volume_id}/ocr-history")
+async def get_ocr_history(
+    case_id: int,
+    volume_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить историю OCR распознаваний для тома"""
+    runs = db.query(OcrRun).filter(
+        OcrRun.volume_id == volume_id
+    ).order_by(OcrRun.started_at.desc()).all()
+
+    return {
+        "history": [
+            {
+                "id": r.id,
+                "engine": r.engine,
+                "model": r.model,
+                "pages_processed": r.pages_processed,
+                "pages_total": r.pages_total,
+                "status": r.status,
+                "avg_confidence": r.avg_confidence,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None
+            }
+            for r in runs
+        ],
+        "total": len(runs)
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/ocr-run/{ocr_run_id}/pages")
+async def get_ocr_run_pages(
+    case_id: int,
+    volume_id: int,
+    ocr_run_id: int,
+    db: Session = Depends(get_db)
+):
+    """Получить текст конкретного OCR run"""
+    pages = db.query(PageText).filter(
+        PageText.volume_id == volume_id,
+        PageText.ocr_run_id == ocr_run_id
+    ).order_by(PageText.page_number).all()
+
+    return {
+        "pages": [
+            {
+                "page_number": p.page_number,
+                "text": p.text,
+                "confidence": p.confidence,
+                "word_boxes": json.loads(p.word_boxes) if p.word_boxes else []
+            }
+            for p in pages
+        ],
+        "total": len(pages),
+        "ocr_run_id": ocr_run_id
+    }
 
 
 @router.get("/{case_id}/volumes/{volume_id}/page/{page_number}/text")
@@ -1402,13 +1487,23 @@ async def get_all_pages_text(
     volume_id: int,
     db: Session = Depends(get_db)
 ):
-    """Получить весь распознанный текст тома (все страницы)"""
+    """Получить весь распознанный текст тома (только последний OCR run)"""
+    # Находим последний завершённый OCR run для этого тома
+    latest_run = db.query(OcrRun).filter(
+        OcrRun.volume_id == volume_id,
+        OcrRun.status == 'completed'
+    ).order_by(OcrRun.id.desc()).first()
+
+    if not latest_run:
+        return {"pages": [], "total": 0, "ocr_run_id": None}
+
     pages = db.query(PageText).filter(
-        PageText.volume_id == volume_id
+        PageText.volume_id == volume_id,
+        PageText.ocr_run_id == latest_run.id
     ).order_by(PageText.page_number).all()
 
     if not pages:
-        return {"pages": [], "total": 0}
+        return {"pages": [], "total": 0, "ocr_run_id": latest_run.id}
 
     return {
         "pages": [
@@ -1420,7 +1515,8 @@ async def get_all_pages_text(
             }
             for p in pages
         ],
-        "total": len(pages)
+        "total": len(pages),
+        "ocr_run_id": latest_run.id
     }
 
 
@@ -1450,4 +1546,112 @@ async def get_ocr_status(
         "recognized_pages": recognized_count,
         "status": volume.processing_status,
         "progress": int(recognized_count / volume.page_count * 100) if volume.page_count else 0
+    }
+
+
+@router.post("/{case_id}/volumes/{volume_id}/vectorize")
+async def vectorize_volume(
+    case_id: int,
+    volume_id: int,
+    ocr_run_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """Векторизация текста тома - разбивка на chunks и создание embeddings"""
+    from datetime import datetime
+
+    # Находим OCR run
+    if ocr_run_id:
+        ocr_run = db.query(OcrRun).filter(OcrRun.id == ocr_run_id).first()
+    else:
+        ocr_run = db.query(OcrRun).filter(
+            OcrRun.volume_id == volume_id,
+            OcrRun.status == 'completed'
+        ).order_by(OcrRun.id.desc()).first()
+
+    if not ocr_run:
+        raise HTTPException(status_code=404, detail="OCR run не найден")
+
+    # Получаем страницы
+    pages = db.query(PageText).filter(
+        PageText.volume_id == volume_id,
+        PageText.ocr_run_id == ocr_run.id
+    ).order_by(PageText.page_number).all()
+
+    if not pages:
+        raise HTTPException(status_code=404, detail="Нет распознанного текста")
+
+    # Удаляем старые chunks для этого OCR run
+    db.query(TextChunk).filter(TextChunk.ocr_run_id == ocr_run.id).delete()
+
+    chunks_created = 0
+    chunk_size = 1000  # символов
+    overlap = 200  # перекрытие
+
+    for page in pages:
+        text = page.text or ""
+        if not text.strip():
+            continue
+
+        # Разбиваем на chunks
+        start = 0
+        chunk_index = 0
+        while start < len(text):
+            end = min(start + chunk_size, len(text))
+            chunk_text = text[start:end]
+
+            # Создаем chunk
+            chunk = TextChunk(
+                ocr_run_id=ocr_run.id,
+                volume_id=volume_id,
+                page_number=page.page_number,
+                chunk_index=chunk_index,
+                text=chunk_text,
+                char_start=start,
+                char_end=end,
+                created_at=datetime.utcnow()
+            )
+            db.add(chunk)
+            chunks_created += 1
+            chunk_index += 1
+
+            start = end - overlap if end < len(text) else len(text)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "ocr_run_id": ocr_run.id,
+        "chunks_created": chunks_created,
+        "pages_processed": len(pages)
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/chunks")
+async def get_volume_chunks(
+    case_id: int,
+    volume_id: int,
+    ocr_run_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """Получить chunks для тома"""
+    query = db.query(TextChunk).filter(TextChunk.volume_id == volume_id)
+
+    if ocr_run_id:
+        query = query.filter(TextChunk.ocr_run_id == ocr_run_id)
+
+    chunks = query.order_by(TextChunk.page_number, TextChunk.chunk_index).all()
+
+    return {
+        "chunks": [
+            {
+                "id": c.id,
+                "page_number": c.page_number,
+                "chunk_index": c.chunk_index,
+                "text": c.text[:200] + "..." if len(c.text) > 200 else c.text,
+                "char_start": c.char_start,
+                "char_end": c.char_end
+            }
+            for c in chunks
+        ],
+        "total": len(chunks)
     }
