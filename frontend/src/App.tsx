@@ -9,6 +9,8 @@ import DocumentsPage from './pages/cases/DocumentsPage'
 import AnalysisPage from './pages/cases/AnalysisPage'
 import StrategyPage from './pages/cases/StrategyPage'
 import DocumentDetailPage from './pages/documents/DocumentDetailPage'
+import SimulationEntryPage from './pages/simulation/SimulationEntryPage'
+import SimulationPage from './pages/simulation/SimulationPage'
 
 // Protected Route wrapper
 function ProtectedRoute({ children }: { children: JSX.Element }) {
@@ -72,6 +74,18 @@ function App() {
         <Route path="/documents/:id" element={
           <ProtectedRoute>
             <DocumentDetailPage />
+          </ProtectedRoute>
+        } />
+
+        {/* Simulation */}
+        <Route path="/simulation" element={
+          <ProtectedRoute>
+            <SimulationEntryPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/simulation/:caseId" element={
+          <ProtectedRoute>
+            <SimulationPage />
           </ProtectedRoute>
         } />
 
