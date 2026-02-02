@@ -2,8 +2,9 @@
 API для работы с делами
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
+import threading
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -251,6 +252,15 @@ async def get_case_volumes(
     # Получаем тома дела
     volumes = db.query(Volume).filter(Volume.case_id == case_id).order_by(Volume.volume_number).all()
 
+    # Получаем количество chunks для каждого тома
+    from sqlalchemy import func
+    chunks_count = dict(
+        db.query(TextChunk.volume_id, func.count(TextChunk.id))
+        .filter(TextChunk.volume_id.in_([v.id for v in volumes]))
+        .group_by(TextChunk.volume_id)
+        .all()
+    )
+
     return [
         {
             "id": vol.id,
@@ -260,7 +270,9 @@ async def get_case_volumes(
             "page_count": vol.page_count,
             "processing_status": vol.processing_status,
             "ocr_quality": vol.ocr_quality,
-            "created_at": vol.created_at.isoformat() if vol.created_at else None
+            "created_at": vol.created_at.isoformat() if vol.created_at else None,
+            "chunks_count": chunks_count.get(vol.id, 0),
+            "is_vectorized": chunks_count.get(vol.id, 0) > 0
         }
         for vol in volumes
     ]
@@ -1535,6 +1547,22 @@ async def get_ocr_status(
     if not volume:
         raise HTTPException(status_code=404, detail="Том не найден")
 
+    # Проверяем активный OCR run
+    active_ocr = db.query(OcrRun).filter(
+        OcrRun.volume_id == volume_id,
+        OcrRun.status == 'running'
+    ).order_by(OcrRun.id.desc()).first()
+
+    if active_ocr:
+        # Есть активный процесс OCR
+        return {
+            "volume_id": volume_id,
+            "total_pages": active_ocr.pages_total or 0,
+            "recognized_pages": active_ocr.pages_processed or 0,
+            "status": "ocr_processing",
+            "progress": int(active_ocr.pages_processed / active_ocr.pages_total * 100) if active_ocr.pages_total else 0
+        }
+
     # Считаем распознанные страницы
     recognized_count = db.query(PageText).filter(
         PageText.volume_id == volume_id
@@ -1549,6 +1577,233 @@ async def get_ocr_status(
     }
 
 
+def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: str, file_path: str, start_page: int = 1, resume_ocr_run_id: int = None):
+    """Фоновый процесс OCR - работает независимо от клиента"""
+    from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count
+    from app.models.database import SessionLocal
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        page_count = get_pdf_page_count(file_path)
+
+        # Возобновляем существующий или создаём новый OCR run
+        if resume_ocr_run_id:
+            ocr_run = db.query(OcrRun).filter(OcrRun.id == resume_ocr_run_id).first()
+            if ocr_run:
+                ocr_run.status = "running"
+                db.commit()
+                print(f"OCR Background: Resuming run {resume_ocr_run_id} from page {start_page}")
+            else:
+                print(f"OCR run {resume_ocr_run_id} not found, creating new")
+                resume_ocr_run_id = None
+
+        if not resume_ocr_run_id:
+            ocr_run = OcrRun(
+                volume_id=volume_id,
+                engine=engine,
+                model=model_name,
+                pages_total=page_count,
+                pages_processed=start_page - 1,
+                status="running"
+            )
+            db.add(ocr_run)
+            db.commit()
+            db.refresh(ocr_run)
+
+        total_confidence = 0
+        successful_pages = 0
+
+        for page_num in range(start_page, page_count + 1):
+            try:
+                # Распознаём страницу
+                text, confidence = ocr_pdf_page(file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name)
+
+                # Сохраняем в БД
+                page_text = PageText(
+                    volume_id=volume_id,
+                    ocr_run_id=ocr_run.id,
+                    page_number=page_num,
+                    text=text,
+                    confidence=confidence,
+                    ocr_engine=engine,
+                    word_boxes=None
+                )
+                db.add(page_text)
+
+                # Обновляем счётчик
+                ocr_run.pages_processed = page_num
+                db.commit()
+
+                total_confidence += confidence
+                successful_pages += 1
+
+                print(f"OCR Background [{engine}]: page {page_num}/{page_count}")
+
+            except Exception as e:
+                print(f"OCR Background error page {page_num}: {e}")
+                continue
+
+        # Обновляем статус
+        volume = db.query(Volume).filter(Volume.id == volume_id).first()
+        if volume:
+            volume.processing_status = "ocr_completed"
+        ocr_run.status = "completed"
+        ocr_run.avg_confidence = int(total_confidence / successful_pages) if successful_pages > 0 else 0
+        ocr_run.completed_at = datetime.utcnow()
+        db.commit()
+
+        print(f"OCR Background completed: {successful_pages}/{page_count} pages")
+
+    except Exception as e:
+        print(f"OCR Background fatal error: {e}")
+        # Помечаем как failed
+        try:
+            ocr_run.status = "failed"
+            db.commit()
+        except:
+            pass
+    finally:
+        db.close()
+
+
+@router.post("/{case_id}/volumes/{volume_id}/start-ocr-background")
+async def start_ocr_background(
+    case_id: int,
+    volume_id: int,
+    engine: str = "claude",
+    model: str = "haiku",
+    db: Session = Depends(get_db)
+):
+    """
+    Запустить OCR в фоновом режиме - НЕ зависит от открытой страницы!
+    Процесс продолжится даже если закрыть браузер.
+    """
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Проверяем, нет ли уже запущенного OCR
+    running_ocr = db.query(OcrRun).filter(
+        OcrRun.volume_id == volume_id,
+        OcrRun.status == "running"
+    ).first()
+
+    if running_ocr:
+        return {"status": "already_running", "ocr_run_id": running_ocr.id, "progress": running_ocr.pages_processed}
+
+    # Путь к файлу
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    # Валидация
+    if engine not in ["tesseract", "claude"]:
+        engine = "claude"
+
+    if engine == "claude" and not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY не настроен")
+
+    model_name = None
+    if engine == "claude":
+        model_name = "claude-sonnet-4-20250514" if model == "sonnet" else "claude-haiku-4-5-20251001"
+
+    # Запускаем в отдельном потоке
+    thread = threading.Thread(
+        target=run_ocr_background,
+        args=(case_id, volume_id, engine, model_name, file_path),
+        daemon=True
+    )
+    thread.start()
+
+    return {"status": "started", "message": "OCR запущен в фоне. Можете закрыть страницу - процесс продолжится."}
+
+
+@router.post("/{case_id}/volumes/{volume_id}/resume-ocr")
+async def resume_ocr(
+    case_id: int,
+    volume_id: int,
+    ocr_run_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Возобновить прерванный OCR - продолжит с последней распознанной страницы.
+    НЕ будет повторно распознавать уже обработанные страницы!
+    """
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Проверяем, нет ли уже запущенного OCR
+    running_ocr = db.query(OcrRun).filter(
+        OcrRun.volume_id == volume_id,
+        OcrRun.status == "running"
+    ).first()
+
+    if running_ocr:
+        return {"status": "already_running", "ocr_run_id": running_ocr.id, "progress": running_ocr.pages_processed}
+
+    # Находим OCR run для возобновления
+    if ocr_run_id:
+        ocr_run = db.query(OcrRun).filter(OcrRun.id == ocr_run_id).first()
+    else:
+        # Берём последний неудавшийся
+        ocr_run = db.query(OcrRun).filter(
+            OcrRun.volume_id == volume_id,
+            OcrRun.status.in_(["failed", "stopped"])
+        ).order_by(OcrRun.pages_processed.desc()).first()
+
+    if not ocr_run:
+        raise HTTPException(status_code=404, detail="Нет OCR для возобновления. Используйте start-ocr-background")
+
+    # Находим последнюю распознанную страницу
+    last_page = db.query(PageText).filter(
+        PageText.volume_id == volume_id,
+        PageText.ocr_run_id == ocr_run.id
+    ).order_by(PageText.page_number.desc()).first()
+
+    start_page = (last_page.page_number + 1) if last_page else 1
+
+    if start_page > ocr_run.pages_total:
+        # Уже всё распознано
+        ocr_run.status = "completed"
+        db.commit()
+        return {"status": "already_completed", "pages": ocr_run.pages_total}
+
+    # Путь к файлу
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    # Запускаем в отдельном потоке с возобновлением
+    thread = threading.Thread(
+        target=run_ocr_background,
+        args=(case_id, volume_id, ocr_run.engine, ocr_run.model, file_path, start_page, ocr_run.id),
+        daemon=True
+    )
+    thread.start()
+
+    return {
+        "status": "resumed",
+        "ocr_run_id": ocr_run.id,
+        "start_page": start_page,
+        "total_pages": ocr_run.pages_total,
+        "message": f"OCR возобновлён с страницы {start_page}. Уже распознано: {start_page - 1} страниц."
+    }
+
+
 @router.post("/{case_id}/volumes/{volume_id}/vectorize")
 async def vectorize_volume(
     case_id: int,
@@ -1558,6 +1813,7 @@ async def vectorize_volume(
 ):
     """Векторизация текста тома - разбивка на chunks и создание embeddings"""
     from datetime import datetime
+    from app.services.embeddings_service import create_embedding, embedding_to_json
 
     # Находим OCR run
     if ocr_run_id:
@@ -1584,6 +1840,7 @@ async def vectorize_volume(
     db.query(TextChunk).filter(TextChunk.ocr_run_id == ocr_run.id).delete()
 
     chunks_created = 0
+    embeddings_created = 0
     chunk_size = 1000  # символов
     overlap = 200  # перекрытие
 
@@ -1599,7 +1856,11 @@ async def vectorize_volume(
             end = min(start + chunk_size, len(text))
             chunk_text = text[start:end]
 
-            # Создаем chunk
+            # Создаём embedding для chunk
+            embedding = create_embedding(chunk_text)
+            embedding_json = embedding_to_json(embedding) if embedding else None
+
+            # Создаем chunk с embedding
             chunk = TextChunk(
                 ocr_run_id=ocr_run.id,
                 volume_id=volume_id,
@@ -1608,20 +1869,28 @@ async def vectorize_volume(
                 text=chunk_text,
                 char_start=start,
                 char_end=end,
+                embedding=embedding_json,
+                embedding_model="text-embedding-3-small",
                 created_at=datetime.utcnow()
             )
             db.add(chunk)
             chunks_created += 1
+            if embedding:
+                embeddings_created += 1
             chunk_index += 1
 
             start = end - overlap if end < len(text) else len(text)
 
-    db.commit()
+        # Коммитим после каждой страницы чтобы не потерять прогресс
+        if chunk_index > 0:
+            db.commit()
+            print(f"Vectorize: page {page.page_number} done, {chunk_index} chunks")
 
     return {
         "status": "success",
         "ocr_run_id": ocr_run.id,
         "chunks_created": chunks_created,
+        "embeddings_created": embeddings_created,
         "pages_processed": len(pages)
     }
 
@@ -1654,4 +1923,75 @@ async def get_volume_chunks(
             for c in chunks
         ],
         "total": len(chunks)
+    }
+
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 10
+
+
+@router.post("/{case_id}/search")
+async def search_case(
+    case_id: int,
+    request: SearchRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Семантический поиск по делу.
+    Ищет по смыслу во всех векторизованных томах.
+    """
+    from app.services.embeddings_service import create_embedding, json_to_embedding, cosine_similarity
+
+    if not request.query or len(request.query.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Запрос слишком короткий")
+
+    # Создаём embedding для запроса
+    query_embedding = create_embedding(request.query)
+    if not query_embedding:
+        raise HTTPException(status_code=500, detail="Ошибка создания embedding для запроса")
+
+    # Получаем все chunks дела с embeddings
+    chunks = db.query(TextChunk).join(Volume).filter(
+        Volume.case_id == case_id,
+        TextChunk.embedding.isnot(None)
+    ).all()
+
+    if not chunks:
+        return {"results": [], "total": 0, "message": "Нет векторизованных документов"}
+
+    # Вычисляем сходство для каждого chunk
+    results = []
+    for chunk in chunks:
+        chunk_embedding = json_to_embedding(chunk.embedding)
+        if chunk_embedding:
+            score = cosine_similarity(query_embedding, chunk_embedding)
+            results.append({
+                "chunk_id": chunk.id,
+                "volume_id": chunk.volume_id,
+                "page_number": chunk.page_number,
+                "text": chunk.text,
+                "score": round(score, 4)
+            })
+
+    # Сортируем по убыванию сходства
+    results.sort(key=lambda x: x["score"], reverse=True)
+
+    # Берём top_k результатов
+    top_results = results[:request.top_k]
+
+    # Добавляем информацию о томах
+    volume_ids = set(r["volume_id"] for r in top_results)
+    volumes = {v.id: v for v in db.query(Volume).filter(Volume.id.in_(volume_ids)).all()}
+
+    for r in top_results:
+        vol = volumes.get(r["volume_id"])
+        if vol:
+            r["volume_number"] = vol.volume_number
+            r["file_name"] = vol.file_name
+
+    return {
+        "query": request.query,
+        "results": top_results,
+        "total": len(top_results)
     }

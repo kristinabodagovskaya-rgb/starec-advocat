@@ -15,11 +15,25 @@ interface CaseDetail {
   updated_at: string
 }
 
+interface SearchResult {
+  chunk_id: number
+  volume_id: number
+  volume_number: number
+  page_number: number
+  text: string
+  score: number
+  file_name: string
+}
+
 export default function CaseDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [caseData, setCaseData] = useState<CaseDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
 
   useEffect(() => {
     loadCase()
@@ -43,6 +57,27 @@ export default function CaseDetailPage() {
       loadDemoCase()
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return
+    setIsSearching(true)
+    try {
+      const response = await fetch(`/api/cases/${id}/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: searchQuery, top_k: 10 })
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSearchResults(data.results || [])
+        setShowSearch(true)
+      }
+    } catch (err) {
+      console.error('Search error:', err)
+    } finally {
+      setIsSearching(false)
     }
   }
 
@@ -187,6 +222,73 @@ export default function CaseDetailPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Search Section */}
+        <div className="apple-glass-card p-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#1d1d1f] mb-4">Поиск по делу</h3>
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Введите запрос для семантического поиска..."
+              className="flex-1 px-4 py-3 border border-[#d2d2d7] rounded-xl focus:outline-none focus:border-[#1d1d1f] transition-colors"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={isSearching || !searchQuery.trim()}
+              className="px-6 py-3 bg-[#1d1d1f] text-white rounded-xl hover:bg-[#333] disabled:opacity-50 transition-colors"
+            >
+              {isSearching ? 'Поиск...' : 'Найти'}
+            </button>
+          </div>
+          <p className="text-sm text-[#86868b] mt-2">
+            Поиск по смыслу во всех векторизованных томах
+          </p>
+
+          {/* Search Results */}
+          {showSearch && (
+            <div className="mt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="font-medium text-[#1d1d1f]">
+                  Результаты: {searchResults.length}
+                </h4>
+                <button
+                  onClick={() => { setShowSearch(false); setSearchResults([]); }}
+                  className="text-sm text-[#86868b] hover:text-[#1d1d1f]"
+                >
+                  Скрыть
+                </button>
+              </div>
+              {searchResults.length > 0 ? (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {searchResults.map((result, i) => (
+                    <div
+                      key={i}
+                      className="p-4 bg-[#f5f5f7] rounded-xl cursor-pointer hover:bg-[#e8e8ed] transition-colors"
+                      onClick={() => navigate(`/cases/${id}/volumes/${result.volume_id}/view?page=${result.page_number}`)}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-sm font-medium text-[#1d1d1f]">
+                          Том {result.volume_number}, стр. {result.page_number}
+                        </span>
+                        <span className="text-xs px-2 py-1 bg-[#1d1d1f] text-white rounded-full">
+                          {Math.round(result.score * 100)}%
+                        </span>
+                      </div>
+                      <p className="text-sm text-[#6e6e73] line-clamp-3">
+                        {result.text}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[#86868b] text-center py-4">Ничего не найдено</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Navigation Grid */}

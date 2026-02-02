@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 
 interface ExtractedDocument {
   id: number
@@ -35,12 +35,14 @@ interface ExtractionHistoryItem {
 export default function PDFViewerPage() {
   const { id, volumeId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialPage = parseInt(searchParams.get('page') || '1', 10)
 
   const [isExtracting, setIsExtracting] = useState(false)
   const [extractionProgress, setExtractionProgress] = useState(0)
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([])
   const [showSidebar, setShowSidebar] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
+  const [currentPage, setCurrentPage] = useState(initialPage)
   const [error, setError] = useState<string | null>(null)
   const [_isLoading, setIsLoading] = useState(true)
 
@@ -53,7 +55,7 @@ export default function PDFViewerPage() {
   const [showOcrText, setShowOcrText] = useState(false)
   const [isLoadingText, setIsLoadingText] = useState(false)
   const [ocrZoom, setOcrZoom] = useState(100)
-  const [ocrCurrentPage, setOcrCurrentPage] = useState(1)
+  const [ocrCurrentPage, setOcrCurrentPage] = useState(initialPage)
 
   // История OCR
   const [showHistory, setShowHistory] = useState(false)
@@ -490,7 +492,7 @@ export default function PDFViewerPage() {
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* PDF Viewer */}
         <div className={`${showOcrText ? 'w-1/2' : 'flex-1'} overflow-hidden`} style={{ backgroundColor: '#525659' }}>
-          <iframe id="pdf-viewer" src={pdfUrl} className="w-full h-full" title="PDF Viewer" />
+          <iframe id="pdf-viewer" src={`${pdfUrl}#page=${currentPage}`} className="w-full h-full" title="PDF Viewer" />
         </div>
 
         {/* OCR Text Column */}
