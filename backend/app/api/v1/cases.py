@@ -1324,6 +1324,7 @@ async def ocr_volume_stream(
         )
 
     async def generate():
+        from app.services.ocr_service import calculate_cost
         try:
             page_count = get_pdf_page_count(file_path)
             # Полное распознавание всех страниц
@@ -1342,7 +1343,10 @@ async def ocr_volume_stream(
                 model=model_name,
                 pages_total=max_pages,
                 pages_processed=0,
-                status="running"
+                status="running",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                estimated_cost_usd=0.0
             )
             db.add(ocr_run)
             db.commit()
@@ -1352,15 +1356,17 @@ async def ocr_volume_stream(
 
             total_confidence = 0
             successful_pages = 0
+            total_input_tokens = 0
+            total_output_tokens = 0
 
             for page_num in range(1, max_pages + 1):
                 try:
-                    # Распознаём страницу выбранным движком
-                    text, confidence = await asyncio.to_thread(
+                    # Распознаём страницу выбранным движком (теперь возвращает токены)
+                    text, confidence, input_tokens, output_tokens = await asyncio.to_thread(
                         ocr_pdf_page, file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name
                     )
 
-                    # Сохраняем в БД (новая запись для каждого OCR run)
+                    # Сохраняем в БД (новая запись для каждого OCR run) с токенами
                     page_text = PageText(
                         volume_id=volume_id,
                         ocr_run_id=ocr_run.id,
@@ -1368,21 +1374,31 @@ async def ocr_volume_stream(
                         text=text,
                         confidence=confidence,
                         ocr_engine=engine,
-                        word_boxes=None
+                        word_boxes=None,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens
                     )
                     db.add(page_text)
 
-                    # Обновляем счётчик в OCR run
+                    # Накапливаем токены
+                    total_input_tokens += input_tokens
+                    total_output_tokens += output_tokens
+
+                    # Обновляем счётчик и токены в OCR run
                     ocr_run.pages_processed = page_num
+                    ocr_run.total_input_tokens = total_input_tokens
+                    ocr_run.total_output_tokens = total_output_tokens
+                    if model_name:
+                        ocr_run.estimated_cost_usd = calculate_cost(total_input_tokens, total_output_tokens, model_name)
                     db.commit()
 
                     total_confidence += confidence
                     successful_pages += 1
 
-                    # Отправляем прогресс
+                    # Отправляем прогресс с токенами
                     progress = int(page_num / max_pages * 100)
-                    print(f"OCR [{engine}] progress: page {page_num}/{max_pages} = {progress}%")
-                    yield f"data: {json.dumps({'type': 'progress', 'page': page_num, 'total': max_pages, 'progress': progress, 'confidence': confidence, 'engine': engine})}\n\n"
+                    print(f"OCR [{engine}] progress: page {page_num}/{max_pages} = {progress}% (tokens: {input_tokens}+{output_tokens})")
+                    yield f"data: {json.dumps({'type': 'progress', 'page': page_num, 'total': max_pages, 'progress': progress, 'confidence': confidence, 'engine': engine, 'input_tokens': input_tokens, 'output_tokens': output_tokens, 'total_input_tokens': total_input_tokens, 'total_output_tokens': total_output_tokens})}\n\n"
 
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'page_error', 'page': page_num, 'error': str(e)})}\n\n"
@@ -1395,7 +1411,7 @@ async def ocr_volume_stream(
             ocr_run.completed_at = datetime.utcnow()
             db.commit()
 
-            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages, 'engine': engine, 'ocr_run_id': ocr_run.id})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'total_pages': max_pages, 'engine': engine, 'ocr_run_id': ocr_run.id, 'total_input_tokens': total_input_tokens, 'total_output_tokens': total_output_tokens, 'estimated_cost_usd': ocr_run.estimated_cost_usd})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
@@ -1432,6 +1448,9 @@ async def get_ocr_history(
                 "pages_total": r.pages_total,
                 "status": r.status,
                 "avg_confidence": r.avg_confidence,
+                "total_input_tokens": r.total_input_tokens,
+                "total_output_tokens": r.total_output_tokens,
+                "estimated_cost_usd": r.estimated_cost_usd,
                 "started_at": r.started_at.isoformat() if r.started_at else None,
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None
             }
@@ -1579,7 +1598,7 @@ async def get_ocr_status(
 
 def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: str, file_path: str, start_page: int = 1, resume_ocr_run_id: int = None):
     """Фоновый процесс OCR - работает независимо от клиента"""
-    from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count
+    from app.services.ocr_service import ocr_pdf_page, get_pdf_page_count, calculate_cost
     from app.models.database import SessionLocal
     from datetime import datetime
 
@@ -1605,7 +1624,10 @@ def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: st
                 model=model_name,
                 pages_total=page_count,
                 pages_processed=start_page - 1,
-                status="running"
+                status="running",
+                total_input_tokens=0,
+                total_output_tokens=0,
+                estimated_cost_usd=0.0
             )
             db.add(ocr_run)
             db.commit()
@@ -1613,13 +1635,15 @@ def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: st
 
         total_confidence = 0
         successful_pages = 0
+        total_input_tokens = ocr_run.total_input_tokens or 0
+        total_output_tokens = ocr_run.total_output_tokens or 0
 
         for page_num in range(start_page, page_count + 1):
             try:
-                # Распознаём страницу
-                text, confidence = ocr_pdf_page(file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name)
+                # Распознаём страницу (теперь возвращает токены)
+                text, confidence, input_tokens, output_tokens = ocr_pdf_page(file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name)
 
-                # Сохраняем в БД
+                # Сохраняем в БД с токенами
                 page_text = PageText(
                     volume_id=volume_id,
                     ocr_run_id=ocr_run.id,
@@ -1627,18 +1651,28 @@ def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: st
                     text=text,
                     confidence=confidence,
                     ocr_engine=engine,
-                    word_boxes=None
+                    word_boxes=None,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens
                 )
                 db.add(page_text)
 
-                # Обновляем счётчик
+                # Накапливаем токены
+                total_input_tokens += input_tokens
+                total_output_tokens += output_tokens
+
+                # Обновляем счётчик и токены в OCR run
                 ocr_run.pages_processed = page_num
+                ocr_run.total_input_tokens = total_input_tokens
+                ocr_run.total_output_tokens = total_output_tokens
+                if model_name:
+                    ocr_run.estimated_cost_usd = calculate_cost(total_input_tokens, total_output_tokens, model_name)
                 db.commit()
 
                 total_confidence += confidence
                 successful_pages += 1
 
-                print(f"OCR Background [{engine}]: page {page_num}/{page_count}")
+                print(f"OCR Background [{engine}]: page {page_num}/{page_count} (tokens: {input_tokens}+{output_tokens})")
 
             except Exception as e:
                 print(f"OCR Background error page {page_num}: {e}")
@@ -1653,7 +1687,7 @@ def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: st
         ocr_run.completed_at = datetime.utcnow()
         db.commit()
 
-        print(f"OCR Background completed: {successful_pages}/{page_count} pages")
+        print(f"OCR Background completed: {successful_pages}/{page_count} pages, total tokens: {total_input_tokens}+{total_output_tokens}, cost: ${ocr_run.estimated_cost_usd}")
 
     except Exception as e:
         print(f"OCR Background fatal error: {e}")
@@ -1994,4 +2028,264 @@ async def search_case(
         "query": request.query,
         "results": top_results,
         "total": len(top_results)
+    }
+
+
+@router.get("/{case_id}/volumes/{volume_id}/estimate-ocr-cost")
+async def estimate_ocr_cost(
+    case_id: int,
+    volume_id: int,
+    model: str = "haiku",  # "haiku" или "sonnet"
+    sample_pages: int = 3,  # количество страниц для оценки
+    db: Session = Depends(get_db)
+):
+    """
+    Предварительная оценка стоимости OCR для тома.
+    Анализирует первые N страниц и экстраполирует на весь том.
+    """
+    from app.services.ocr_service import get_pdf_page_count, extract_page_image_for_ocr, image_to_base64, CLAUDE_OCR_DPI, calculate_cost, CLAUDE_PRICING
+
+    volume = db.query(Volume).filter(
+        Volume.id == volume_id,
+        Volume.case_id == case_id
+    ).first()
+
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    # Путь к файлу
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY не настроен")
+
+    # Определяем модель
+    if model == "sonnet":
+        model_name = "claude-sonnet-4-20250514"
+    else:
+        model_name = "claude-haiku-4-5-20251001"
+
+    try:
+        page_count = get_pdf_page_count(file_path)
+        sample_pages = min(sample_pages, page_count)
+
+        # Подсчитываем токены для выборки страниц используя count_tokens API
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+        prompt = """Ты — OCR-ассистент. Распознай весь текст с изображения документа.
+
+ПРАВИЛА:
+
+1. СТРУКТУРА: сохраняй оригинальное расположение текста, переносы строк, отступы. Не переупорядочивай.
+
+2. ТАБЛИЦЫ: используй табуляцию для колонок. Сохраняй структуру строк и столбцов.
+
+3. РУКОПИСНЫЙ ТЕКСТ: ОБЯЗАТЕЛЬНО распознавай ВСЕ рукописные записи, даже если почерк плохой. Если можешь разобрать хоть что-то — пиши с вариантами: Ярутов (возм. Яругов). Если совсем неразборчиво — пиши [неразборчиво], но НИКОГДА не оставляй пустым и не пропускай. В таблицах рукопись часто в ячейках — проверяй КАЖДУЮ ячейку!
+
+4. ИЗОБРАЖЕНИЯ: на месте фото, схем, печатей пиши [ИЗОБРАЖЕНИЕ: описание]. Например: [ИЗОБРАЖЕНИЕ: подпись "А.И. Петров", дата 12.04.2025]. Если внутри изображения есть текст (скан документа внутри документа) — [ВЛОЖЕННЫЙ ТЕКСТ: содержимое].
+
+5. МЕТАДАННЫЕ: включай номера страниц, даты, штампы, колонтитулы — всё что видишь.
+
+6. ТОЧНОСТЬ: никогда не выдумывай текст. Не исправляй опечатки без пометки. Не упрощай и не перефразируй.
+
+Выведи ТОЛЬКО распознанный текст без комментариев:"""
+
+        total_input_tokens = 0
+        page_tokens = []
+
+        for page_num in range(1, sample_pages + 1):
+            image = extract_page_image_for_ocr(file_path, page_num, dpi=CLAUDE_OCR_DPI)
+            img_base64 = image_to_base64(image)
+
+            # Используем count_tokens API (бесплатно)
+            response = client.messages.count_tokens(
+                model=model_name,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_base64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            )
+
+            input_tokens = response.input_tokens
+            total_input_tokens += input_tokens
+            page_tokens.append(input_tokens)
+
+        # Рассчитываем средние токены и экстраполируем
+        avg_input_tokens_per_page = total_input_tokens / sample_pages
+        # Оцениваем output токены (обычно 200-500 на страницу)
+        avg_output_tokens_per_page = 350
+
+        estimated_input_tokens = int(avg_input_tokens_per_page * page_count)
+        estimated_output_tokens = int(avg_output_tokens_per_page * page_count)
+        estimated_cost = calculate_cost(estimated_input_tokens, estimated_output_tokens, model_name)
+
+        prices = CLAUDE_PRICING.get(model_name)
+
+        return {
+            "volume_id": volume_id,
+            "page_count": page_count,
+            "sample_pages": sample_pages,
+            "model": model_name,
+            "avg_input_tokens_per_page": int(avg_input_tokens_per_page),
+            "avg_output_tokens_per_page": avg_output_tokens_per_page,
+            "estimated_input_tokens": estimated_input_tokens,
+            "estimated_output_tokens": estimated_output_tokens,
+            "estimated_cost_usd": estimated_cost,
+            "pricing": {
+                "input_per_1m": prices["input"],
+                "output_per_1m": prices["output"]
+            },
+            "sample_page_tokens": page_tokens
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при оценке: {str(e)}")
+
+
+class BatchOcrRequest(BaseModel):
+    volume_ids: List[int]
+    engine: str = "claude"
+    model: str = "haiku"
+
+
+@router.post("/{case_id}/batch-ocr")
+async def start_batch_ocr(
+    case_id: int,
+    request: BatchOcrRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Запустить OCR параллельно на нескольких томах.
+    Каждый том обрабатывается в отдельном потоке.
+    """
+    if not request.volume_ids:
+        raise HTTPException(status_code=400, detail="Не указаны тома для OCR")
+
+    if request.engine == "claude" and not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY не настроен")
+
+    model_name = None
+    if request.engine == "claude":
+        model_name = "claude-sonnet-4-20250514" if request.model == "sonnet" else "claude-haiku-4-5-20251001"
+
+    results = []
+
+    for volume_id in request.volume_ids:
+        # Проверяем том
+        volume = db.query(Volume).filter(
+            Volume.id == volume_id,
+            Volume.case_id == case_id
+        ).first()
+
+        if not volume:
+            results.append({"volume_id": volume_id, "status": "not_found"})
+            continue
+
+        # Проверяем, нет ли уже запущенного OCR на этом томе
+        running_ocr = db.query(OcrRun).filter(
+            OcrRun.volume_id == volume_id,
+            OcrRun.status == "running"
+        ).first()
+
+        if running_ocr:
+            results.append({
+                "volume_id": volume_id,
+                "status": "already_running",
+                "ocr_run_id": running_ocr.id,
+                "progress": running_ocr.pages_processed
+            })
+            continue
+
+        # Путь к файлу
+        upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+        file_path = os.path.join(upload_dir, volume.file_name)
+
+        if not os.path.exists(file_path):
+            results.append({"volume_id": volume_id, "status": "file_not_found"})
+            continue
+
+        # Запускаем OCR в отдельном потоке
+        thread = threading.Thread(
+            target=run_ocr_background,
+            args=(case_id, volume_id, request.engine, model_name, file_path),
+            daemon=True
+        )
+        thread.start()
+
+        results.append({
+            "volume_id": volume_id,
+            "status": "started",
+            "file_name": volume.file_name
+        })
+
+    started_count = sum(1 for r in results if r["status"] == "started")
+
+    return {
+        "case_id": case_id,
+        "total_requested": len(request.volume_ids),
+        "started": started_count,
+        "results": results,
+        "message": f"Запущено OCR на {started_count} томах параллельно"
+    }
+
+
+@router.get("/{case_id}/ocr-status")
+async def get_case_ocr_status(
+    case_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Получить статус OCR по всем томам дела.
+    Показывает какие тома обрабатываются, завершены или ожидают.
+    """
+    volumes = db.query(Volume).filter(Volume.case_id == case_id).all()
+
+    result = []
+    for volume in volumes:
+        # Последний OCR run
+        latest_run = db.query(OcrRun).filter(
+            OcrRun.volume_id == volume.id
+        ).order_by(OcrRun.id.desc()).first()
+
+        status_info = {
+            "volume_id": volume.id,
+            "volume_number": volume.volume_number,
+            "file_name": volume.file_name,
+            "ocr_status": "not_started",
+            "progress": 0,
+            "pages_total": 0,
+            "pages_processed": 0
+        }
+
+        if latest_run:
+            status_info["ocr_status"] = latest_run.status
+            status_info["pages_total"] = latest_run.pages_total or 0
+            status_info["pages_processed"] = latest_run.pages_processed or 0
+            status_info["progress"] = int(latest_run.pages_processed / latest_run.pages_total * 100) if latest_run.pages_total else 0
+            status_info["engine"] = latest_run.engine
+            status_info["model"] = latest_run.model
+            status_info["total_input_tokens"] = latest_run.total_input_tokens
+            status_info["total_output_tokens"] = latest_run.total_output_tokens
+            status_info["estimated_cost_usd"] = latest_run.estimated_cost_usd
+
+        result.append(status_info)
+
+    running = sum(1 for r in result if r["ocr_status"] == "running")
+    completed = sum(1 for r in result if r["ocr_status"] == "completed")
+    not_started = sum(1 for r in result if r["ocr_status"] == "not_started")
+
+    return {
+        "case_id": case_id,
+        "total_volumes": len(volumes),
+        "running": running,
+        "completed": completed,
+        "not_started": not_started,
+        "volumes": result
     }

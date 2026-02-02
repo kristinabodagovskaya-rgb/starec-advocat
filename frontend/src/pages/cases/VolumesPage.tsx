@@ -22,6 +22,13 @@ export default function VolumesPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [gdriveLink, setGdriveLink] = useState('')
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+
+  // Массовый OCR
+  const [selectedVolumes, setSelectedVolumes] = useState<Set<number>>(new Set())
+  const [isRunningBatchOcr, setIsRunningBatchOcr] = useState(false)
+  const [showOcrModal, setShowOcrModal] = useState(false)
+  const [ocrModel, setOcrModel] = useState<'haiku' | 'sonnet'>('haiku')
 
   useEffect(() => {
     loadVolumes()
@@ -67,6 +74,7 @@ export default function VolumesPage() {
 
   const handleUpload = async () => {
     setIsUploading(true)
+    setUploadProgress(0)
     try {
       if (uploadMethod === 'local' && selectedFiles.length > 0) {
         const formData = new FormData()
@@ -74,31 +82,56 @@ export default function VolumesPage() {
           formData.append('files', file)
         })
 
-        const response = await fetch(`/api/cases/${id}/upload-volumes/`, {
-          method: 'POST',
-          body: formData,
+        // Используем XMLHttpRequest для отслеживания прогресса
+        const xhr = new XMLHttpRequest()
+
+        const uploadPromise = new Promise<{ok: boolean, data?: any, error?: string}>((resolve) => {
+          xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100)
+              setUploadProgress(percent)
+            }
+          })
+
+          xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const result = JSON.parse(xhr.responseText)
+                resolve({ ok: true, data: result })
+              } catch {
+                resolve({ ok: true })
+              }
+            } else {
+              let errorMessage = `Ошибка ${xhr.status}`
+              try {
+                const errorData = JSON.parse(xhr.responseText)
+                errorMessage = errorData.detail || errorMessage
+              } catch {
+                if (xhr.responseText.length > 0) {
+                  errorMessage = xhr.responseText.substring(0, 200)
+                }
+              }
+              resolve({ ok: false, error: errorMessage })
+            }
+          })
+
+          xhr.addEventListener('error', () => {
+            resolve({ ok: false, error: 'Ошибка сети' })
+          })
+
+          xhr.open('POST', `/api/cases/${id}/upload-volumes/`)
+          xhr.send(formData)
         })
 
-        if (response.ok) {
-          const result = await response.json()
-          alert(`Успешно загружено ${result.uploaded} файлов!`)
+        const result = await uploadPromise
+
+        if (result.ok) {
+          alert(`Успешно загружено ${result.data?.uploaded || selectedFiles.length} файлов!`)
           setShowUploadModal(false)
           setSelectedFiles([])
           loadVolumes()
         } else {
-          let errorMessage = `Ошибка ${response.status}`
-          try {
-            const errorData = await response.json()
-            errorMessage = errorData.detail || errorMessage
-          } catch {
-            const text = await response.text()
-            if (text.includes('413') || response.status === 413) {
-              errorMessage = 'Файл слишком большой. Максимум 100MB через Cloudflare.'
-            } else if (text.length > 0) {
-              errorMessage = text.substring(0, 200)
-            }
-          }
-          alert(`Ошибка: ${errorMessage}`)
+          alert(`Ошибка: ${result.error}`)
         }
       } else if (uploadMethod === 'gdrive' && gdriveLink) {
         const response = await fetch(`/api/cases/${id}/sync-gdrive/`, {
@@ -135,6 +168,61 @@ export default function VolumesPage() {
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`
     return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
+  }
+
+  // Выбор/снятие выбора тома
+  const toggleVolumeSelection = (volumeId: number) => {
+    setSelectedVolumes(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(volumeId)) {
+        newSet.delete(volumeId)
+      } else {
+        newSet.add(volumeId)
+      }
+      return newSet
+    })
+  }
+
+  // Выбрать все / снять выбор
+  const toggleSelectAll = () => {
+    if (selectedVolumes.size === volumes.length) {
+      setSelectedVolumes(new Set())
+    } else {
+      setSelectedVolumes(new Set(volumes.map(v => v.id)))
+    }
+  }
+
+  // Запуск массового OCR
+  const handleBatchOcr = async () => {
+    if (selectedVolumes.size === 0) return
+
+    setIsRunningBatchOcr(true)
+    try {
+      const response = await fetch(`/api/cases/${id}/batch-ocr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          volume_ids: Array.from(selectedVolumes),
+          engine: 'claude',
+          model: ocrModel
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        alert(`${result.message}`)
+        setShowOcrModal(false)
+        setSelectedVolumes(new Set())
+      } else {
+        const error = await response.json()
+        alert(`Ошибка: ${error.detail || 'Не удалось запустить OCR'}`)
+      }
+    } catch (error) {
+      console.error('Batch OCR error:', error)
+      alert('Ошибка при запуске OCR')
+    } finally {
+      setIsRunningBatchOcr(false)
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -185,15 +273,43 @@ export default function VolumesPage() {
           </button>
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-semibold text-[#1d1d1f] tracking-tight">Дело</h1>
-              <p className="text-[#6e6e73] mt-1">Документов: {volumes.length}</p>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-[#1d1d1f] tracking-tight">Тома дела</h1>
+              <p className="text-[#6e6e73] mt-1">
+                Всего: {volumes.length}
+                {selectedVolumes.size > 0 && (
+                  <span className="ml-2 text-blue-600">• Выбрано: {selectedVolumes.size}</span>
+                )}
+              </p>
             </div>
-            <button
-              onClick={() => setShowUploadModal(true)}
-              className="apple-btn-secondary"
-            >
-              Загрузить файл
-            </button>
+            <div className="flex items-center space-x-3">
+              {volumes.length > 0 && (
+                <>
+                  <button
+                    onClick={toggleSelectAll}
+                    className="apple-btn-secondary text-sm"
+                  >
+                    {selectedVolumes.size === volumes.length ? 'Снять выбор' : 'Выбрать все'}
+                  </button>
+                  {selectedVolumes.size > 0 && (
+                    <button
+                      onClick={() => setShowOcrModal(true)}
+                      className="apple-btn-primary flex items-center"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      OCR ({selectedVolumes.size})
+                    </button>
+                  )}
+                </>
+              )}
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="apple-btn-secondary"
+              >
+                Загрузить файл
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -218,13 +334,20 @@ export default function VolumesPage() {
             {volumes.map((volume) => (
               <div
                 key={volume.id}
-                className="apple-glass-card p-6"
+                className={`apple-glass-card p-6 ${selectedVolumes.has(volume.id) ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4 flex-1">
+                    {/* Чекбокс для выбора */}
+                    <input
+                      type="checkbox"
+                      checked={selectedVolumes.has(volume.id)}
+                      onChange={() => toggleVolumeSelection(volume.id)}
+                      className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
                     <div className="w-14 h-14 bg-[#1d1d1f]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
                       <svg className="w-7 h-7 text-[#1d1d1f]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
                     </div>
                     <div className="flex-1">
@@ -274,6 +397,88 @@ export default function VolumesPage() {
           </div>
         )}
       </main>
+
+      {/* OCR Modal */}
+      {showOcrModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-[#1d1d1f]">Запустить OCR</h2>
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="p-2 hover:bg-black/5 rounded-xl transition-colors"
+              >
+                <svg className="w-5 h-5 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-[#6e6e73] mb-4">
+                Выбрано томов: <span className="font-semibold text-[#1d1d1f]">{selectedVolumes.size}</span>
+              </p>
+              <p className="text-sm text-[#86868b]">
+                OCR будет запущен параллельно на всех выбранных томах.
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-[#1d1d1f] mb-3">Модель Claude:</label>
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setOcrModel('haiku')}
+                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-colors ${
+                    ocrModel === 'haiku'
+                      ? 'bg-[#1d1d1f] text-white'
+                      : 'bg-[#f5f5f7] text-[#6e6e73] hover:bg-[#e8e8ed]'
+                  }`}
+                >
+                  <div>Haiku</div>
+                  <div className="text-xs mt-1 opacity-70">Быстрый, дешевле</div>
+                </button>
+                <button
+                  onClick={() => setOcrModel('sonnet')}
+                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-colors ${
+                    ocrModel === 'sonnet'
+                      ? 'bg-[#1d1d1f] text-white'
+                      : 'bg-[#f5f5f7] text-[#6e6e73] hover:bg-[#e8e8ed]'
+                  }`}
+                >
+                  <div>Sonnet</div>
+                  <div className="text-xs mt-1 opacity-70">Лучше качество</div>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowOcrModal(false)}
+                className="flex-1 py-3 px-4 bg-[#f5f5f7] text-[#1d1d1f] rounded-xl font-medium hover:bg-[#e8e8ed] transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleBatchOcr}
+                disabled={isRunningBatchOcr}
+                className="flex-1 py-3 px-4 bg-[#1d1d1f] text-white rounded-xl font-medium hover:bg-[#424245] transition-colors disabled:opacity-50 flex items-center justify-center"
+              >
+                {isRunningBatchOcr ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Запуск...
+                  </>
+                ) : (
+                  <>Запустить OCR</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upload Modal */}
       {showUploadModal && (
@@ -373,7 +578,7 @@ export default function VolumesPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Загрузка...
+                    {uploadProgress > 0 ? `${uploadProgress}%` : 'Загрузка...'}
                   </>
                 ) : 'Загрузить'}
               </button>

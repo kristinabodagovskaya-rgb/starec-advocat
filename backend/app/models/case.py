@@ -2,7 +2,7 @@
 Модель дела
 """
 
-from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -149,6 +149,10 @@ class PageText(Base):
     confidence = Column(Integer)  # 0-100%
     word_boxes = Column(Text)  # JSON с координатами слов
 
+    # Токены (для Claude OCR)
+    input_tokens = Column(Integer)   # Входные токены страницы
+    output_tokens = Column(Integer)  # Выходные токены страницы
+
     # Метаданные
     processed_at = Column(DateTime, default=datetime.utcnow)
 
@@ -173,6 +177,11 @@ class OcrRun(Base):
     # Результат
     status = Column(String(20), default="running")  # running, completed, failed
     avg_confidence = Column(Integer)  # средняя уверенность 0-100%
+
+    # Токены и стоимость (для Claude OCR)
+    total_input_tokens = Column(Integer, default=0)   # Всего входных токенов
+    total_output_tokens = Column(Integer, default=0)  # Всего выходных токенов
+    estimated_cost_usd = Column(Float, default=0.0)   # Оценочная стоимость в USD
 
     # Время
     started_at = Column(DateTime, default=datetime.utcnow)

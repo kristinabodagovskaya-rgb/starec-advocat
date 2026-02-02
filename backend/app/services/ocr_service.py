@@ -23,6 +23,19 @@ TESSERACT_CONFIG = '--oem 1 --psm 6 --dpi 300'
 # Claude для OCR (300 DPI для лучшего распознавания рукописи)
 CLAUDE_OCR_DPI = 300
 
+# Цены Claude (на февраль 2026) в USD за 1M токенов
+CLAUDE_PRICING = {
+    "claude-haiku-4-5-20251001": {"input": 0.25, "output": 1.25},
+    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+}
+
+
+def calculate_cost(input_tokens: int, output_tokens: int, model: str) -> float:
+    """Рассчитать стоимость в USD по токенам и модели"""
+    prices = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-haiku-4-5-20251001"])
+    cost = (input_tokens * prices["input"] + output_tokens * prices["output"]) / 1_000_000
+    return round(cost, 6)
+
 
 def preprocess_image_simple(image: Image.Image) -> Image.Image:
     """Минимальная предобработка для Tesseract"""
@@ -94,8 +107,12 @@ def ocr_pdf_page_tesseract(pdf_path: str, page_number: int) -> Tuple[str, int]:
 # CLAUDE VISION OCR (платно, лучше качество)
 # ============================================================
 
-def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, model: str = None) -> Tuple[str, int]:
-    """OCR с помощью Claude Vision с автоматическим retry при ошибках"""
+def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, model: str = None) -> Tuple[str, int, int, int]:
+    """
+    OCR с помощью Claude Vision с автоматическим retry при ошибках.
+
+    Возвращает: (text, confidence, input_tokens, output_tokens)
+    """
     import time
 
     client = anthropic.Anthropic(api_key=api_key)
@@ -155,7 +172,11 @@ def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, mo
             # Claude обычно даёт очень высокую точность
             confidence = 95
 
-            return text.strip(), confidence
+            # Получаем информацию о токенах из response.usage
+            input_tokens = message.usage.input_tokens
+            output_tokens = message.usage.output_tokens
+
+            return text.strip(), confidence, input_tokens, output_tokens
 
         except Exception as e:
             print(f"Ошибка Claude OCR (попытка {attempt + 1}/{max_retries}): {e}")
@@ -165,13 +186,17 @@ def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, mo
                 time.sleep(wait_time)
             else:
                 print(f"Все {max_retries} попытки неудачны")
-                return "", 0
+                return "", 0, 0, 0
 
-    return "", 0
+    return "", 0, 0, 0
 
 
-def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None, model: str = None) -> Tuple[str, int]:
-    """OCR страницы PDF с Claude Vision"""
+def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None, model: str = None) -> Tuple[str, int, int, int]:
+    """
+    OCR страницы PDF с Claude Vision.
+
+    Возвращает: (text, confidence, input_tokens, output_tokens)
+    """
     # Используем низкий DPI для экономии токенов
     image = extract_page_image_for_ocr(pdf_path, page_number, dpi=CLAUDE_OCR_DPI)
     return ocr_claude(image, api_key=api_key, model=model)
@@ -181,17 +206,22 @@ def ocr_pdf_page_claude(pdf_path: str, page_number: int, api_key: str = None, mo
 # УНИВЕРСАЛЬНЫЕ ФУНКЦИИ
 # ============================================================
 
-def ocr_pdf_page(pdf_path: str, page_number: int, engine: str = "tesseract", api_key: str = None, model: str = None) -> Tuple[str, int]:
+def ocr_pdf_page(pdf_path: str, page_number: int, engine: str = "tesseract", api_key: str = None, model: str = None) -> Tuple[str, int, int, int]:
     """
-    OCR страницы PDF
+    OCR страницы PDF.
+
     engine: "tesseract" или "claude"
     api_key: нужен только для Claude
     model: модель Claude (например "claude-haiku-4-5-20251001" или "claude-sonnet-4-20250514")
+
+    Возвращает: (text, confidence, input_tokens, output_tokens)
+    - Для tesseract input_tokens и output_tokens всегда 0
     """
     if engine == "claude":
         return ocr_pdf_page_claude(pdf_path, page_number, api_key=api_key, model=model)
     else:
-        return ocr_pdf_page_tesseract(pdf_path, page_number)
+        text, confidence = ocr_pdf_page_tesseract(pdf_path, page_number)
+        return text, confidence, 0, 0  # Tesseract не использует токены
 
 
 def get_pdf_page_count(pdf_path: str) -> int:

@@ -78,9 +78,9 @@ class Settings(BaseSettings):
     OCR_LANGUAGE: str = "rus+eng"
 
     # Лимиты
-    MAX_FILE_SIZE: int = 500 * 1024 * 1024  # 500 MB
+    MAX_FILE_SIZE: int = 5 * 1024 * 1024 * 1024  # 5 GB
     MAX_VOLUMES_PER_CASE: int = 500
-    MAX_DOCUMENTS_PER_VOLUME: int = 100
+    MAX_DOCUMENTS_PER_VOLUME: int = 1000
 
     # Celery Workers
     CELERY_OCR_WORKERS: int = 3

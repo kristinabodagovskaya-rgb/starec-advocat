@@ -101,5 +101,9 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=settings.DEBUG
+        reload=settings.DEBUG,
+        # Для больших файлов (до 5 GB)
+        limit_max_request_line=0,  # без лимита
+        timeout_keep_alive=300,  # 5 минут
+        h11_max_incomplete_event_size=0  # без лимита
     )
