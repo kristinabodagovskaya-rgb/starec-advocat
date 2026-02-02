@@ -1518,6 +1518,72 @@ async def get_page_text(
     }
 
 
+@router.post("/{case_id}/volumes/{volume_id}/page/{page_number}/reocr")
+async def reocr_single_page(
+    case_id: int,
+    volume_id: int,
+    page_number: int,
+    engine: str = "claude",
+    model: str = "claude-haiku-4-5-20251001",
+    db: Session = Depends(get_db)
+):
+    """Перераспознать одну страницу"""
+    from app.services.ocr_service import ocr_pdf_page, calculate_cost
+
+    volume = db.query(Volume).filter(Volume.id == volume_id, Volume.case_id == case_id).first()
+    if not volume:
+        raise HTTPException(status_code=404, detail="Том не найден")
+
+    upload_dir = os.path.join(UPLOAD_BASE_DIR, f"case_{case_id}")
+    file_path = os.path.join(upload_dir, volume.file_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="PDF файл не найден")
+
+    # Распознаём страницу
+    text, confidence, input_tokens, output_tokens = ocr_pdf_page(
+        file_path, page_number, engine, settings.ANTHROPIC_API_KEY, model
+    )
+
+    # Обновляем или создаём запись
+    page_text = db.query(PageText).filter(
+        PageText.volume_id == volume_id,
+        PageText.page_number == page_number
+    ).first()
+
+    if page_text:
+        page_text.text = text
+        page_text.confidence = confidence
+        page_text.ocr_engine = engine
+        page_text.input_tokens = input_tokens
+        page_text.output_tokens = output_tokens
+    else:
+        page_text = PageText(
+            volume_id=volume_id,
+            page_number=page_number,
+            text=text,
+            confidence=confidence,
+            ocr_engine=engine,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens
+        )
+        db.add(page_text)
+
+    db.commit()
+
+    cost = calculate_cost(input_tokens, output_tokens, model)
+
+    return {
+        "status": "success",
+        "page_number": page_number,
+        "text_length": len(text),
+        "confidence": confidence,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd": cost
+    }
+
+
 @router.get("/{case_id}/volumes/{volume_id}/all-pages-text")
 async def get_all_pages_text(
     case_id: int,

@@ -145,7 +145,7 @@ def ocr_claude(image: Image.Image, api_key: str = None, max_retries: int = 3, mo
         try:
             message = client.messages.create(
                 model=model_id,
-                max_tokens=4096,
+                max_tokens=8192,
                 temperature=0,
                 messages=[
                     {
