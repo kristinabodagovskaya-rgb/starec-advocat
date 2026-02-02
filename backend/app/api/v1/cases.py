@@ -1438,6 +1438,11 @@ async def get_ocr_history(
         OcrRun.volume_id == volume_id
     ).order_by(OcrRun.started_at.desc()).all()
 
+    def calc_duration(started, completed):
+        if started and completed:
+            return int((completed - started).total_seconds())
+        return None
+
     return {
         "history": [
             {
@@ -1452,7 +1457,8 @@ async def get_ocr_history(
                 "total_output_tokens": r.total_output_tokens,
                 "estimated_cost_usd": r.estimated_cost_usd,
                 "started_at": r.started_at.isoformat() if r.started_at else None,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None
+                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                "duration_seconds": calc_duration(r.started_at, r.completed_at)
             }
             for r in runs
         ],

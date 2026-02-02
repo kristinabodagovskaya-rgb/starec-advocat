@@ -23,6 +23,7 @@ interface OcrHistoryItem {
   estimated_cost_usd: number | null
   started_at: string | null
   completed_at: string | null
+  duration_seconds: number | null
 }
 
 interface ExtractionHistoryItem {
@@ -738,6 +739,15 @@ export default function PDFViewerPage() {
                             )}
                             <div className="text-xs text-gray-400 mt-1">
                               {run.started_at && new Date(run.started_at).toLocaleString('ru')}
+                              {run.duration_seconds && run.duration_seconds > 0 && (
+                                <span className="ml-2 text-gray-500">
+                                  ({run.duration_seconds >= 3600
+                                    ? `${Math.floor(run.duration_seconds / 3600)}ч ${Math.floor((run.duration_seconds % 3600) / 60)}мин`
+                                    : run.duration_seconds >= 60
+                                      ? `${Math.floor(run.duration_seconds / 60)}мин ${run.duration_seconds % 60}сек`
+                                      : `${run.duration_seconds}сек`})
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-2">
