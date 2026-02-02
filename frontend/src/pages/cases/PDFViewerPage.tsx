@@ -330,7 +330,7 @@ export default function PDFViewerPage() {
                   </button>
                   {ocrEngine === 'claude' && ocrTotalInputTokens > 0 && (
                     <span className="text-xs text-gray-500 whitespace-nowrap">
-                      {(ocrTotalInputTokens / 1000).toFixed(1)}K токенов
+                      {(ocrTotalInputTokens / 1000).toFixed(1)}K in / {(ocrTotalOutputTokens / 1000).toFixed(1)}K out
                     </span>
                   )}
                 </div>
