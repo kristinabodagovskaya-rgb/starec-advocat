@@ -95,6 +95,13 @@ export default function PDFViewerPage() {
           if (data.pages && data.pages.length > 0) {
             setAllPagesText(data.pages)
             setShowOcrText(true)
+            // Принудительный скролл к странице 1 после рендера
+            setTimeout(() => {
+              const el = document.getElementById('ocr-page-1')
+              if (el) {
+                el.scrollIntoView({ behavior: 'auto', block: 'start' })
+              }
+            }, 100)
             if (data.ocr_run_id) {
               setCurrentOcrRunId(data.ocr_run_id)
               // Загружаем количество chunks
@@ -295,6 +302,7 @@ export default function PDFViewerPage() {
 
   const goToPage = (page: number) => {
     setCurrentPage(page)
+    setOcrCurrentPage(page) // Синхронизируем с OCR панелью
     const iframe = document.getElementById('pdf-viewer') as HTMLIFrameElement
     if (iframe) {
       const timestamp = Date.now()
@@ -633,7 +641,7 @@ export default function PDFViewerPage() {
                           textAlign: 'justify'
                         }}
                       >
-                        <div className="whitespace-pre-wrap">{page.text || ''}</div>
+                        <div className="whitespace-pre-wrap" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{page.text || ''}</div>
                       </div>
                     </div>
                   )

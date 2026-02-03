@@ -1590,23 +1590,28 @@ async def get_all_pages_text(
     volume_id: int,
     db: Session = Depends(get_db)
 ):
-    """Получить весь распознанный текст тома (только последний OCR run)"""
-    # Находим последний завершённый OCR run для этого тома
+    """Получить весь распознанный текст тома (все страницы, последняя версия каждой)"""
+    # Простой запрос - берем все страницы и в Python выбираем последнюю версию
+    all_pages = db.query(PageText).filter(
+        PageText.volume_id == volume_id
+    ).order_by(PageText.page_number, PageText.id.desc()).all()
+
+    if not all_pages:
+        return {"pages": [], "total": 0, "ocr_run_id": None}
+
+    # Выбираем последнюю версию каждой страницы (первую в группе, т.к. сортировка по id desc)
+    pages_dict = {}
+    for p in all_pages:
+        if p.page_number not in pages_dict:
+            pages_dict[p.page_number] = p
+
+    pages = [pages_dict[pn] for pn in sorted(pages_dict.keys())]
+
+    # Находим последний OCR run для информации
     latest_run = db.query(OcrRun).filter(
         OcrRun.volume_id == volume_id,
         OcrRun.status == 'completed'
     ).order_by(OcrRun.id.desc()).first()
-
-    if not latest_run:
-        return {"pages": [], "total": 0, "ocr_run_id": None}
-
-    pages = db.query(PageText).filter(
-        PageText.volume_id == volume_id,
-        PageText.ocr_run_id == latest_run.id
-    ).order_by(PageText.page_number).all()
-
-    if not pages:
-        return {"pages": [], "total": 0, "ocr_run_id": latest_run.id}
 
     return {
         "pages": [
@@ -1619,7 +1624,7 @@ async def get_all_pages_text(
             for p in pages
         ],
         "total": len(pages),
-        "ocr_run_id": latest_run.id
+        "ocr_run_id": latest_run.id if latest_run else None
     }
 
 
@@ -1712,6 +1717,17 @@ def run_ocr_background(case_id: int, volume_id: int, engine: str, model_name: st
 
         for page_num in range(start_page, page_count + 1):
             try:
+                # Проверяем, есть ли уже эта страница в БД (пропускаем если есть)
+                existing_page = db.query(PageText).filter(
+                    PageText.volume_id == volume_id,
+                    PageText.page_number == page_num
+                ).first()
+                if existing_page:
+                    print(f"OCR Background [{engine}]: page {page_num}/{page_count} - SKIPPED (already exists)")
+                    ocr_run.pages_processed = page_num
+                    db.commit()
+                    continue
+
                 # Распознаём страницу (теперь возвращает токены)
                 text, confidence, input_tokens, output_tokens = ocr_pdf_page(file_path, page_num, engine, settings.ANTHROPIC_API_KEY, model_name)
 
