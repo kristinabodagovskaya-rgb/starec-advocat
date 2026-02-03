@@ -9,6 +9,7 @@ interface Volume {
   page_count: number
   processing_status: string
   ocr_quality: number
+  ocr_current_page: number
   created_at: string
 }
 
@@ -33,6 +34,15 @@ export default function VolumesPage() {
   useEffect(() => {
     loadVolumes()
   }, [id])
+
+  // Автоматическое обновление при активном OCR
+  useEffect(() => {
+    const hasProcessing = volumes.some(v => v.processing_status === 'processing')
+    if (hasProcessing) {
+      const interval = setInterval(loadVolumes, 3000) // Обновлять каждые 3 секунды
+      return () => clearInterval(interval)
+    }
+  }, [volumes])
 
   const loadVolumes = async () => {
     try {
@@ -225,24 +235,49 @@ export default function VolumesPage() {
     }
   }
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      pending: 'apple-badge-success',
-      processing: 'apple-badge-warning',
-      completed: 'apple-badge-success',
-      ocr_completed: 'apple-badge-success',
-      failed: 'apple-badge-danger',
+  const getStatusBadge = (volume: Volume) => {
+    const status = volume.processing_status
+    const styles: Record<string, string> = {
+      pending: 'bg-gray-100 text-gray-600',
+      stopped: 'bg-gray-100 text-gray-600',
+      processing: 'bg-yellow-100 text-yellow-700',
+      completed: 'bg-green-100 text-green-700',
+      ocr_completed: 'bg-green-100 text-green-700',
+      failed: 'bg-red-100 text-red-700',
+      error: 'bg-red-100 text-red-700',
     }
-    const labels = {
-      pending: 'Загружен',
-      processing: 'Обработка',
+    const labels: Record<string, string> = {
+      pending: 'Ожидает',
+      stopped: 'Остановлен',
+      processing: 'Распознаётся',
       completed: 'Готово',
       ocr_completed: 'OCR готов',
       failed: 'Ошибка',
+      error: 'Ошибка',
     }
+
+    // Если идёт распознавание - показываем прогресс
+    if (status === 'processing' && volume.page_count > 0) {
+      const progress = Math.round((volume.ocr_current_page / volume.page_count) * 100)
+      return (
+        <div className="flex items-center space-x-2">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
+            {volume.ocr_current_page}/{volume.page_count} стр.
+          </span>
+          <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-yellow-500 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="text-xs text-gray-500">{progress}%</span>
+        </div>
+      )
+    }
+
     return (
-      <span className={`apple-badge ${styles[status as keyof typeof styles]}`}>
-        {labels[status as keyof typeof labels]}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || styles.pending}`}>
+        {labels[status] || status}
       </span>
     )
   }
@@ -355,7 +390,7 @@ export default function VolumesPage() {
                         <h3 className="text-lg font-semibold text-[#1d1d1f]">
                           {volume.file_name}
                         </h3>
-                        {getStatusBadge(volume.processing_status)}
+                        {getStatusBadge(volume)}
                       </div>
                       <div className="flex items-center space-x-4 text-sm text-[#86868b]">
                         <span>{formatFileSize(volume.file_size)}</span>

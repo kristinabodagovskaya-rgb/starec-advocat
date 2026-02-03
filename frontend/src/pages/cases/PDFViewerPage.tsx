@@ -536,8 +536,76 @@ export default function PDFViewerPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* PDF Viewer */}
-        <div className={`${showOcrText ? 'w-1/2' : 'flex-1'} overflow-hidden`} style={{ backgroundColor: '#525659' }}>
-          <iframe id="pdf-viewer" src={`${pdfUrl}#page=${currentPage}`} className="w-full h-full" title="PDF Viewer" />
+        <div className={`${showOcrText ? 'w-1/2' : 'flex-1'} flex flex-col overflow-hidden`} style={{ backgroundColor: '#525659' }}>
+          {/* PDF Toolbar */}
+          <div className="bg-[#38383b] flex items-center justify-center px-4 py-2 gap-4 flex-shrink-0">
+            {/* Навигация */}
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="p-2 hover:bg-[#4a4a4e] rounded text-white"
+              title="Предыдущая страница"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <div className="flex items-center text-white">
+              <input
+                type="number"
+                min="1"
+                value={currentPage}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value)
+                  if (!isNaN(val) && val >= 1) {
+                    setCurrentPage(val)
+                  }
+                }}
+                className="w-12 text-center bg-[#2d2d30] text-white border border-[#5a5a5e] rounded px-1 py-1"
+              />
+            </div>
+
+            <button
+              onClick={() => setCurrentPage(p => p + 1)}
+              className="p-2 hover:bg-[#4a4a4e] rounded text-white"
+              title="Следующая страница"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            <div className="w-px h-6 bg-[#5a5a5e]"></div>
+
+            {/* Скачать */}
+            <a
+              href={pdfUrl}
+              download
+              className="p-2 hover:bg-[#4a4a4e] rounded text-white"
+              title="Скачать PDF"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </a>
+
+            {/* Открыть в новом окне */}
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 hover:bg-[#4a4a4e] rounded text-white"
+              title="Открыть в новой вкладке (с полным управлением)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+
+          <div className="flex-1 overflow-hidden">
+            <iframe id="pdf-viewer" src={`${pdfUrl}#page=${currentPage}`} className="w-full h-full" title="PDF Viewer" />
+          </div>
         </div>
 
         {/* OCR Text Column */}

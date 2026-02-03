@@ -2377,3 +2377,76 @@ async def get_case_ocr_status(
         "not_started": not_started,
         "volumes": result
     }
+
+
+@router.post("/{case_id}/cleanup-duplicates")
+async def cleanup_duplicate_volumes(
+    case_id: int,
+    db: Session = Depends(get_db)
+):
+    """Удалить дублирующиеся тома (оставляем с OCR) и исправить volume_number"""
+    import re
+
+    # Получаем все тома дела
+    volumes = db.query(Volume).filter(Volume.case_id == case_id).all()
+
+    # Группируем по размеру файла
+    by_size = {}
+    for v in volumes:
+        if v.file_size not in by_size:
+            by_size[v.file_size] = []
+        by_size[v.file_size].append(v)
+
+    deleted_ids = []
+    fixed_volumes = []
+
+    # Обрабатываем дубликаты
+    for size, vols in by_size.items():
+        if len(vols) > 1:
+            # Есть дубликаты
+            # Приоритет: ocr_completed > имеет chunks > более старый id
+            vols_sorted = sorted(vols, key=lambda x: (
+                0 if x.processing_status == 'ocr_completed' else 1,
+                -len(db.query(TextChunk).filter(TextChunk.volume_id == x.id).all()) if hasattr(x, 'id') else 0,
+                x.id
+            ))
+
+            # Оставляем первый (лучший), удаляем остальные
+            keep = vols_sorted[0]
+            for v in vols_sorted[1:]:
+                # Удаляем связанные данные
+                db.query(TextChunk).filter(TextChunk.volume_id == v.id).delete()
+                db.query(PageText).filter(PageText.volume_id == v.id).delete()
+                db.query(OcrRun).filter(OcrRun.volume_id == v.id).delete()
+                db.query(Document).filter(Document.volume_id == v.id).delete()
+                db.query(ExtractionRun).filter(ExtractionRun.volume_id == v.id).delete()
+                db.delete(v)
+                deleted_ids.append({"id": v.id, "file_name": v.file_name})
+
+    # Исправляем volume_number на основе имени файла
+    remaining_volumes = db.query(Volume).filter(Volume.case_id == case_id).all()
+    for v in remaining_volumes:
+        # Пытаемся извлечь номер из имени файла
+        match = re.search(r'(\d+)\s*том|том\s*(\d+)|Том[_ ]?0*(\d+)', v.file_name, re.IGNORECASE)
+        if match:
+            num = match.group(1) or match.group(2) or match.group(3)
+            if num:
+                new_num = int(num)
+                if v.volume_number != new_num:
+                    old_num = v.volume_number
+                    v.volume_number = new_num
+                    fixed_volumes.append({
+                        "id": v.id,
+                        "file_name": v.file_name,
+                        "old_number": old_num,
+                        "new_number": new_num
+                    })
+
+    db.commit()
+
+    return {
+        "deleted_count": len(deleted_ids),
+        "deleted": deleted_ids,
+        "fixed_count": len(fixed_volumes),
+        "fixed": fixed_volumes
+    }
