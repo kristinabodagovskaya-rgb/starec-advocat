@@ -24,8 +24,9 @@ TESSERACT_CONFIG = '--oem 1 --psm 6 --dpi 300'
 CLAUDE_OCR_DPI = 300
 
 # Цены Claude (на февраль 2026) в USD за 1M токенов
+# https://www.anthropic.com/pricing
 CLAUDE_PRICING = {
-    "claude-haiku-4-5-20251001": {"input": 0.25, "output": 1.25},
+    "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.00},
     "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
 }
 

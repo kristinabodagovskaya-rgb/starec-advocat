@@ -45,6 +45,7 @@ export default function PDFViewerPage() {
   const [isExtracting, setIsExtracting] = useState(false)
   const [extractionProgress, setExtractionProgress] = useState(0)
   const [extractedDocs, setExtractedDocs] = useState<ExtractedDocument[]>([])
+  const [extractionEventSource, setExtractionEventSource] = useState<EventSource | null>(null)
   const [showSidebar, setShowSidebar] = useState(false)
   const [currentPage, setCurrentPage] = useState(initialPage)
   const [error, setError] = useState<string | null>(null)
@@ -149,6 +150,7 @@ export default function PDFViewerPage() {
     try {
       const url = `/api/cases/${id}/volumes/${volumeId}/extract-documents-stream`
       const eventSource = new EventSource(url)
+      setExtractionEventSource(eventSource)
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data)
@@ -159,10 +161,12 @@ export default function PDFViewerPage() {
           setExtractedDocs(data.documents || [])
           setShowSidebar(true)
           setIsExtracting(false)
+          setExtractionEventSource(null)
           eventSource.close()
         } else if (data.type === 'error') {
           setError(data.message || 'Ошибка при извлечении документов')
           setIsExtracting(false)
+          setExtractionEventSource(null)
           eventSource.close()
         }
       }
@@ -170,12 +174,22 @@ export default function PDFViewerPage() {
       eventSource.onerror = () => {
         setError('Ошибка подключения к серверу')
         setIsExtracting(false)
+        setExtractionEventSource(null)
         eventSource.close()
       }
     } catch (err) {
       setError('Ошибка подключения к серверу: ' + String(err))
       setIsExtracting(false)
     }
+  }
+
+  const handleCancelExtraction = () => {
+    if (extractionEventSource) {
+      extractionEventSource.close()
+      setExtractionEventSource(null)
+    }
+    setIsExtracting(false)
+    setExtractionProgress(0)
   }
 
   // Загрузка ВСЕХ страниц текста
@@ -417,28 +431,39 @@ export default function PDFViewerPage() {
               )}
 
               {/* Extract Documents Button */}
-              <button
-                onClick={handleExtractDocuments}
-                disabled={isExtracting}
-                className={`flex items-center ${extractedDocs.length > 0 ? 'apple-btn-secondary' : 'apple-btn-primary'}`}
-              >
-                {isExtracting ? (
-                  <>
+              {isExtracting ? (
+                <div className="flex items-center space-x-2">
+                  <button
+                    disabled
+                    className="apple-btn-secondary flex items-center"
+                  >
                     <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     Анализ... {extractionProgress > 0 && `${extractionProgress}%`}
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </button>
+                  <button
+                    onClick={handleCancelExtraction}
+                    className="apple-btn-secondary flex items-center text-red-600 hover:bg-red-50"
+                    title="Отменить выделение"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                    {extractedDocs.length > 0 ? 'Выделить заново' : 'Выделить документы'}
-                  </>
-                )}
-              </button>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={handleExtractDocuments}
+                  className={`flex items-center ${extractedDocs.length > 0 ? 'apple-btn-secondary' : 'apple-btn-primary'}`}
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {extractedDocs.length > 0 ? 'Выделить заново' : 'Выделить документы'}
+                </button>
+              )}
 
               {/* Toggle OCR Text Button */}
               <button
@@ -536,7 +561,7 @@ export default function PDFViewerPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* PDF Viewer */}
-        <div className={`${showOcrText ? 'w-1/2' : 'flex-1'} flex flex-col overflow-hidden`} style={{ backgroundColor: '#525659' }}>
+        <div className={`${showOcrText ? (showSidebar && extractedDocs.length > 0 ? 'w-1/3' : 'w-1/2') : 'flex-1'} flex flex-col overflow-hidden transition-all duration-300`} style={{ backgroundColor: '#525659' }}>
           {/* PDF Toolbar */}
           <div className="bg-[#38383b] flex items-center justify-center px-4 py-2 gap-4 flex-shrink-0">
             {/* Навигация */}
@@ -610,7 +635,7 @@ export default function PDFViewerPage() {
 
         {/* OCR Text Column */}
         {showOcrText && (
-          <div className="w-1/2 h-full flex flex-col" style={{ backgroundColor: '#525659' }}>
+          <div className={`${showSidebar && extractedDocs.length > 0 ? 'w-1/3' : 'w-1/2'} h-full flex flex-col transition-all duration-300`} style={{ backgroundColor: '#525659' }}>
             {/* Toolbar */}
             <div style={{ height: '56px', minHeight: '56px' }} className="bg-[#38383b] flex items-center px-4 flex-shrink-0">
               <div className="flex items-center mr-4">
